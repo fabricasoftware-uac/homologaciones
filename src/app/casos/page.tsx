@@ -1,5 +1,7 @@
+"use client";
+
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useRouter } from "next/navigation";
 import { Plus, Search, Filter, Clock, CheckCircle2, AlertCircle, TrendingUp, Users } from "lucide-react";
 
 interface Case {
@@ -20,17 +22,17 @@ const mockCases: Case[] = [
   { id: "5", studentName: "Luis Rodríguez", sourceInstitution: "Universidad del Valle", targetCareer: "Ingeniería de Sistemas", date: "05 Abr 2026", status: "Completado", confidence: 78 },
 ];
 
-export function CaseInbox() {
-  const navigate = useNavigate();
+export default function CasosPage() {
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
 
   const pendingCount = mockCases.filter(c => c.status === "Listo para Revisión").length;
   const avgConfidence = Math.round(
-    mockCases.filter(c => c.confidence > 0).reduce((acc, curr) => acc + curr.confidence, 0) / 
+    mockCases.filter(c => c.confidence > 0).reduce((acc, curr) => acc + curr.confidence, 0) /
     mockCases.filter(c => c.confidence > 0).length
   );
 
-  const filteredCases = mockCases.filter(c => 
+  const filteredCases = mockCases.filter(c =>
     c.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.sourceInstitution.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.targetCareer.toLowerCase().includes(searchTerm.toLowerCase())
@@ -57,9 +59,9 @@ export function CaseInbox() {
               Gestiona y revisa las homologaciones pendientes (Profesor Iván).
             </p>
           </div>
-          <button 
+          <button
             className="flex items-center gap-2 bg-blue-800 text-white hover:bg-blue-900 font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors"
-            onClick={() => navigate("/casos/nuevo")} // Simplified routing logic for demo
+            onClick={() => router.push("/casos/nuevo")}
           >
             <Plus className="w-4 h-4" />
             Nuevo Caso
@@ -69,8 +71,7 @@ export function CaseInbox() {
 
       <main className="flex-1 overflow-auto p-8">
         <div className="max-w-7xl mx-auto space-y-8">
-          
-          {/* Summary Cards */}
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-start gap-4">
               <div className="p-3 bg-amber-100 text-amber-700 rounded-lg">
@@ -81,7 +82,7 @@ export function CaseInbox() {
                 <p className="text-3xl font-bold text-slate-900 mt-1">{pendingCount}</p>
               </div>
             </div>
-            
+
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-start gap-4">
               <div className="p-3 bg-green-100 text-green-700 rounded-lg">
                 <TrendingUp className="w-6 h-6" />
@@ -103,7 +104,6 @@ export function CaseInbox() {
             </div>
           </div>
 
-          {/* Table Toolbar */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row gap-4 justify-between items-center bg-slate-50/50">
               <div className="relative w-full sm:w-96">
@@ -124,7 +124,6 @@ export function CaseInbox() {
               </button>
             </div>
 
-            {/* Table */}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
@@ -139,10 +138,10 @@ export function CaseInbox() {
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredCases.map((c) => (
-                    <tr 
-                      key={c.id} 
+                    <tr
+                      key={c.id}
                       className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
-                      onClick={() => navigate(`/casos/${c.id}`)}
+                      onClick={() => router.push(`/casos/${c.id}`)}
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">

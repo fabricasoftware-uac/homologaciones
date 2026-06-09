@@ -1,5 +1,7 @@
+"use client";
+
 import { useState, useMemo } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronDown, ChevronUp, Link as LinkIcon, Check, X, AlertTriangle, AlertCircle, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import clsx from "clsx";
@@ -9,8 +11,8 @@ interface Subject {
   name: string;
   code: string;
   credits: number;
-  intensity: number; // IH
-  grade?: number; // Only source
+  intensity: number;
+  grade?: number;
   semester: number;
 }
 
@@ -22,7 +24,6 @@ interface Link {
   status: "pending" | "approved" | "rejected";
 }
 
-// Mock Data
 const sourceSubjects: Subject[] = [
   { id: "s1", name: "Fundamentos de Contabilidad", code: "FC101", credits: 4, intensity: 64, grade: 4.5, semester: 1 },
   { id: "s2", name: "Álgebra Lineal", code: "AL101", credits: 3, intensity: 48, grade: 3.8, semester: 1 },
@@ -51,19 +52,16 @@ const initialLinks: Link[] = [
   { id: "l3", sourceIds: ["s4"], targetIds: ["t4"], confidence: 85, status: "pending" },
   { id: "l4", sourceIds: ["s5"], targetIds: ["t5"], confidence: 80, status: "pending" },
   { id: "l5", sourceIds: ["s6"], targetIds: ["t6"], confidence: 65, status: "pending" },
-  // Many-to-One Example (AI suggested)
   { id: "l6", sourceIds: ["s7", "s8"], targetIds: ["t8"], confidence: 88, status: "pending" },
 ];
 
-export function ComparisonStudio() {
-  const { id } = useParams();
-  const navigate = useNavigate();
+export default function StudioPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
 
   const [links, setLinks] = useState<Link[]>(initialLinks);
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
   const [selectedTargetIds, setSelectedTargetIds] = useState<Set<string>>(new Set());
 
-  // Group by semesters
   const sourceSemesters = useMemo(() => {
     const sem = new Set(sourceSubjects.map(s => s.semester));
     return Array.from(sem).sort((a, b) => a - b);
@@ -77,10 +75,6 @@ export function ComparisonStudio() {
   const [expandedSourceSems, setExpandedSourceSems] = useState<Set<number>>(new Set(sourceSemesters));
   const [expandedTargetSems, setExpandedTargetSems] = useState<Set<number>>(new Set(targetSemesters));
 
-  // Logic to determine active Link context based on selection
-  // If exactly one link contains ALL selected items (and no others), we might show its actions.
-  // Actually, let's keep it simple: If items are selected that belong to an existing link, show link details.
-  
   const handleSourceSelect = (subjectId: string) => {
     const newSet = new Set(selectedSourceIds);
     if (newSet.has(subjectId)) newSet.delete(subjectId);
@@ -101,23 +95,22 @@ export function ComparisonStudio() {
       id: `l${Date.now()}`,
       sourceIds: Array.from(selectedSourceIds),
       targetIds: Array.from(selectedTargetIds),
-      confidence: 100, // Manual link = 100% confidence
+      confidence: 100,
       status: "approved"
     };
-    
-    // Remove any previous links that overlap to avoid duplicates (simplified)
-    const filteredLinks = links.filter(l => 
+
+    const filteredLinks = links.filter(l =>
       !l.sourceIds.some(sid => selectedSourceIds.has(sid)) &&
       !l.targetIds.some(tid => selectedTargetIds.has(tid))
     );
-    
+
     setLinks([...filteredLinks, newLink]);
     setSelectedSourceIds(new Set());
     setSelectedTargetIds(new Set());
   };
 
   const getActiveLinkForSubject = (subjectId: string, type: "source" | "target") => {
-    return links.find(l => 
+    return links.find(l =>
       type === "source" ? l.sourceIds.includes(subjectId) : l.targetIds.includes(subjectId)
     );
   };
@@ -136,11 +129,10 @@ export function ComparisonStudio() {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 relative">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between z-10 shadow-sm shrink-0">
         <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate("/casos")}
+          <button
+            onClick={() => router.push("/casos")}
             className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
           >
             <ChevronLeft className="w-5 h-5" />
@@ -150,7 +142,7 @@ export function ComparisonStudio() {
             <p className="text-sm text-slate-500 font-medium">Juanito Pérez • Contaduría Pública</p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-3">
           <div className="text-sm font-semibold px-4 py-2 bg-slate-100 text-slate-600 rounded-lg border border-slate-200">
             {links.filter(l => l.status === "approved").length} Enlaces Aprobados
@@ -161,10 +153,8 @@ export function ComparisonStudio() {
         </div>
       </header>
 
-      {/* Main Studio Area */}
       <main className="flex-1 overflow-hidden flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-slate-200">
-        
-        {/* Left Side: Source */}
+
         <div className="flex-1 flex flex-col min-h-0 bg-white">
           <div className="p-4 border-b border-slate-200 bg-slate-50/50 shrink-0">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Origen: Universidad Nacional</h2>
@@ -172,9 +162,9 @@ export function ComparisonStudio() {
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
             {sourceSemesters.map(sem => (
-              <SemesterGroup 
-                key={`s-${sem}`} 
-                title={`Semestre ${sem}`} 
+              <SemesterGroup
+                key={`s-${sem}`}
+                title={`Semestre ${sem}`}
                 expanded={expandedSourceSems.has(sem)}
                 onToggle={() => toggleSourceSem(sem)}
               >
@@ -182,12 +172,12 @@ export function ComparisonStudio() {
                   const link = getActiveLinkForSubject(subject.id, "source");
                   const isSelected = selectedSourceIds.has(subject.id);
                   const isLinkedToSelectedTarget = link && Array.from(selectedTargetIds).some(tid => link.targetIds.includes(tid));
-                  
+
                   return (
-                    <SubjectCard 
-                      key={subject.id} 
-                      subject={subject} 
-                      type="source" 
+                    <SubjectCard
+                      key={subject.id}
+                      subject={subject}
+                      type="source"
                       link={link}
                       isSelected={isSelected}
                       isHighlighted={!!isLinkedToSelectedTarget}
@@ -200,7 +190,6 @@ export function ComparisonStudio() {
           </div>
         </div>
 
-        {/* Right Side: Target */}
         <div className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
           <div className="p-4 border-b border-slate-200 bg-white shrink-0">
             <h2 className="text-sm font-bold uppercase tracking-wider text-blue-800">Destino: Contaduría Pública</h2>
@@ -208,9 +197,9 @@ export function ComparisonStudio() {
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
             {targetSemesters.map(sem => (
-              <SemesterGroup 
-                key={`t-${sem}`} 
-                title={`Semestre ${sem}`} 
+              <SemesterGroup
+                key={`t-${sem}`}
+                title={`Semestre ${sem}`}
                 expanded={expandedTargetSems.has(sem)}
                 onToggle={() => toggleTargetSem(sem)}
               >
@@ -220,10 +209,10 @@ export function ComparisonStudio() {
                   const isLinkedToSelectedSource = link && Array.from(selectedSourceIds).some(sid => link.sourceIds.includes(sid));
 
                   return (
-                    <SubjectCard 
-                      key={subject.id} 
-                      subject={subject} 
-                      type="target" 
+                    <SubjectCard
+                      key={subject.id}
+                      subject={subject}
+                      type="target"
                       link={link}
                       isSelected={isSelected}
                       isHighlighted={!!isLinkedToSelectedSource}
@@ -237,7 +226,6 @@ export function ComparisonStudio() {
         </div>
       </main>
 
-      {/* Floating Action Bar for Linking */}
       <AnimatePresence>
         {(selectedSourceIds.size > 0 || selectedTargetIds.size > 0) && (
           <motion.div
@@ -261,10 +249,10 @@ export function ComparisonStudio() {
                 Destino
               </span>
             </div>
-            
+
             <div className="h-8 w-px bg-slate-700" />
-            
-            <button 
+
+            <button
               onClick={handleCreateLink}
               disabled={selectedSourceIds.size === 0 || selectedTargetIds.size === 0}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-white px-5 py-2 rounded-xl font-bold transition-colors shadow-lg shadow-blue-900/50"
@@ -272,7 +260,7 @@ export function ComparisonStudio() {
               <LinkIcon className="w-4 h-4" />
               Vincular (Many-to-Many)
             </button>
-            <button 
+            <button
               onClick={() => { setSelectedSourceIds(new Set()); setSelectedTargetIds(new Set()); }}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
             >
@@ -288,7 +276,7 @@ export function ComparisonStudio() {
 function SemesterGroup({ title, expanded, onToggle, children }: { title: string, expanded: boolean, onToggle: () => void, children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <button 
+      <button
         onClick={onToggle}
         className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 transition-colors border-b border-slate-200/50"
       >
@@ -315,31 +303,31 @@ function SemesterGroup({ title, expanded, onToggle, children }: { title: string,
   );
 }
 
-function SubjectCard({ 
-  subject, 
-  type, 
-  link, 
-  isSelected, 
-  isHighlighted, 
-  onSelect 
-}: { 
-  subject: Subject, 
-  type: "source" | "target", 
-  link?: Link, 
+function SubjectCard({
+  subject,
+  type,
+  link,
+  isSelected,
+  isHighlighted,
+  onSelect
+}: {
+  subject: Subject,
+  type: "source" | "target",
+  link?: Link,
   isSelected: boolean,
   isHighlighted: boolean,
-  onSelect: () => void 
+  onSelect: () => void
 }) {
-  
+
   const getLinkColor = () => {
     if (!link) return "border-slate-200 bg-white hover:border-slate-300";
     if (link.status === "approved") return "border-green-300 bg-green-50/80 shadow-[0_0_10px_rgba(34,197,94,0.15)] ring-1 ring-green-300";
     if (link.status === "rejected") return "border-red-200 bg-red-50/50 opacity-60";
-    return "border-amber-200 bg-amber-50/50 ring-1 ring-amber-200 shadow-sm"; // pending
+    return "border-amber-200 bg-amber-50/50 ring-1 ring-amber-200 shadow-sm";
   };
 
-  const selectedClass = isSelected 
-    ? "ring-2 ring-blue-500 border-blue-500 shadow-md transform scale-[1.02]" 
+  const selectedClass = isSelected
+    ? "ring-2 ring-blue-500 border-blue-500 shadow-md transform scale-[1.02]"
     : isHighlighted
       ? "ring-2 ring-indigo-400/50 border-indigo-300 shadow-sm"
       : getLinkColor();
@@ -351,27 +339,25 @@ function SubjectCard({
   };
 
   return (
-    <div 
+    <div
       onClick={onSelect}
       className={clsx(
         "relative rounded-xl border p-3 cursor-pointer transition-all duration-200 select-none",
         selectedClass
       )}
     >
-      {/* Top row: Code & Badges */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-bold text-slate-500 bg-white/60 px-2 py-0.5 rounded shadow-sm border border-slate-100">
           {subject.code}
         </span>
-        
-        {/* Connection Indicator */}
+
         {link && link.status === "pending" && type === "target" && (
           <div className={clsx("flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border", getConfidenceBadge(link.confidence))}>
             {link.confidence >= 80 ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
             {link.confidence}% IA
           </div>
         )}
-        
+
         {link && link.status === "approved" && (
           <div className="text-[10px] font-bold text-green-700 flex items-center gap-1 bg-green-100 px-2 py-0.5 rounded-full">
             <LinkIcon className="w-3 h-3" /> Vinculado
@@ -379,12 +365,10 @@ function SubjectCard({
         )}
       </div>
 
-      {/* Subject Name */}
       <h3 className={clsx("font-bold leading-snug mb-3", type === "target" ? "text-blue-900" : "text-slate-800")}>
         {subject.name}
       </h3>
 
-      {/* Meta Footer */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center text-xs font-semibold text-slate-600 bg-slate-100/80 px-2 py-1 rounded-md">
           {subject.credits} CR
@@ -399,7 +383,6 @@ function SubjectCard({
         )}
       </div>
 
-      {/* Checkbox overlay when selected */}
       {isSelected && (
         <div className="absolute top-3 right-3 w-5 h-5 bg-blue-500 text-white rounded-full flex items-center justify-center shadow-sm">
           <Check className="w-3 h-3" strokeWidth={3} />

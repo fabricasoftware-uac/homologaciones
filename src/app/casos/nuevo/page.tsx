@@ -1,16 +1,17 @@
+"use client";
+
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useRouter } from "next/navigation";
 import { UploadCloud, FileText, CheckCircle2, ChevronRight, User, School, Briefcase, ArrowLeft } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import clsx from "clsx";
 
-export function NewCaseSetup() {
-  const navigate = useNavigate();
+export default function NuevoCasoPage() {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Form state
   const [studentName, setStudentName] = useState("");
   const [sourceInstitution, setSourceInstitution] = useState("");
   const [targetCareer, setTargetCareer] = useState("");
@@ -20,7 +21,6 @@ export function NewCaseSetup() {
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       setFile(e.dataTransfer.files[0]);
-      // Simulate auto-filling some details from the PDF
       if (!studentName) setStudentName("Estudiante Nuevo");
       if (!sourceInstitution) setSourceInstitution("Institución de Origen (Auto-detectada)");
     }
@@ -29,21 +29,18 @@ export function NewCaseSetup() {
   const handleStartAnalysis = () => {
     if (!file || !targetCareer) return;
     setIsAnalyzing(true);
-    
-    // Simulate API delay
+
     setTimeout(() => {
-      // Navigate to the comparison studio with a mock new ID
-      navigate(`/casos/nuevo-${Date.now()}`);
+      router.push(`/casos/nuevo-${Date.now()}`);
     }, 1500);
   };
 
   return (
     <div className="h-full flex flex-col bg-slate-50 relative overflow-y-auto">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 px-8 py-6 sticky top-0 z-10 shadow-sm shrink-0">
         <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate("/casos")}
+          <button
+            onClick={() => router.push("/casos")}
             className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -59,9 +56,8 @@ export function NewCaseSetup() {
 
       <main className="flex-1 p-8">
         <div className="max-w-4xl mx-auto space-y-8">
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Left Column: Drag & Drop */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -71,7 +67,7 @@ export function NewCaseSetup() {
                 <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs">1</span>
                 Certificado de Notas (PDF)
               </h2>
-              
+
               <div
                 className={clsx(
                   "flex-1 rounded-2xl border-2 border-dashed p-8 flex flex-col items-center justify-center transition-all duration-300 min-h-[300px] bg-white shadow-sm",
@@ -88,7 +84,7 @@ export function NewCaseSetup() {
                     </div>
                     <p className="font-bold text-slate-800 text-lg truncate max-w-[250px]">{file.name}</p>
                     <p className="text-slate-500 font-medium mt-1 text-sm">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                    
+
                     <button
                       type="button"
                       className="mt-6 px-4 py-2 text-sm font-bold text-slate-500 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors shadow-sm"
@@ -129,7 +125,6 @@ export function NewCaseSetup() {
               </div>
             </motion.div>
 
-            {/* Right Column: Form */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -140,16 +135,15 @@ export function NewCaseSetup() {
                 <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs">2</span>
                 Detalles de Homologación
               </h2>
-              
+
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-5 flex-1">
-                
-                {/* Target Career */}
+
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
                     <Briefcase className="w-4 h-4 text-blue-600" />
                     Carrera Destino (Aplica a)
                   </label>
-                  <select 
+                  <select
                     value={targetCareer}
                     onChange={(e) => setTargetCareer(e.target.value)}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-slate-700 font-medium"
@@ -164,15 +158,14 @@ export function NewCaseSetup() {
 
                 <div className="h-px bg-slate-100 my-2" />
 
-                {/* Optional Overrides / Auto-filled */}
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
                       <User className="w-4 h-4 text-slate-400" />
                       Nombre del Estudiante
                     </label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={studentName}
                       onChange={(e) => setStudentName(e.target.value)}
                       placeholder="Ej: Juanito Pérez"
@@ -185,8 +178,8 @@ export function NewCaseSetup() {
                       <School className="w-4 h-4 text-slate-400" />
                       Institución de Origen
                     </label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={sourceInstitution}
                       onChange={(e) => setSourceInstitution(e.target.value)}
                       placeholder="Ej: Universidad Nacional"
@@ -198,8 +191,7 @@ export function NewCaseSetup() {
             </motion.div>
           </div>
 
-          {/* Action Footer */}
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}

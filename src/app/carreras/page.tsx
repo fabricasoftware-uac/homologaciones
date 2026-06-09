@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from "react";
 import { UploadCloud, FileText, CheckCircle2, ChevronRight, Layers, LayoutGrid, Plus, Save, X, Edit3, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -11,13 +13,12 @@ interface ExtractedSubject {
   semester: number;
 }
 
-export function PensumManager() {
+export default function CarrerasPage() {
   const [view, setView] = useState<"list" | "upload" | "review">("list");
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [extractedData, setExtractedData] = useState<ExtractedSubject[]>([]);
 
-  // Mock Active Plans
   const [activePlans, setActivePlans] = useState([
     { id: 1, career: "Contaduría Pública", version: "2024-1", status: "Activo", subjects: 45 },
     { id: 2, career: "Ingeniería de Sistemas", version: "2023-2", status: "Activo", subjects: 50 },
@@ -34,7 +35,6 @@ export function PensumManager() {
 
   const handleSimulateExtraction = () => {
     setView("review");
-    // Generate mock extracted data (Semesters 1 to 4)
     const mockExtracted: ExtractedSubject[] = [];
     for (let sem = 1; sem <= 4; sem++) {
       for (let i = 1; i <= 5; i++) {
@@ -67,7 +67,6 @@ export function PensumManager() {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 relative">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 px-8 py-6 sticky top-0 z-10 shadow-sm shrink-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -79,10 +78,10 @@ export function PensumManager() {
               Administra los planes académicos y extrae nuevos desde PDF.
             </p>
           </div>
-          
+
           <AnimatePresence mode="popLayout">
             {view === "list" && (
-              <motion.button 
+              <motion.button
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
@@ -93,21 +92,21 @@ export function PensumManager() {
                 Subir Nuevo Pensum
               </motion.button>
             )}
-            
+
             {view === "review" && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
                 className="flex items-center gap-3"
               >
-                <button 
+                <button
                   onClick={() => setView("upload")}
                   className="px-4 py-2 text-slate-600 hover:bg-slate-100 font-medium rounded-lg transition-colors"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   onClick={handleSavePlan}
                   className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors shadow-green-600/20"
                 >
@@ -120,10 +119,9 @@ export function PensumManager() {
         </div>
       </header>
 
-      {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto p-8">
         <div className="max-w-6xl mx-auto">
-          
+
           <AnimatePresence mode="wait">
             {view === "list" && (
               <motion.div
@@ -210,7 +208,7 @@ export function PensumManager() {
                       </div>
                       <p className="font-bold text-slate-800 text-xl">{file.name}</p>
                       <p className="text-slate-500 font-medium mt-2">{(file.size / 1024 / 1024).toFixed(2)} MB • PDF Document</p>
-                      
+
                       <div className="mt-8 flex items-center gap-4">
                         <button
                           type="button"
@@ -283,17 +281,17 @@ export function PensumManager() {
                       <div className="bg-blue-50/50 border-b border-slate-100 px-5 py-4">
                         <h3 className="font-black text-blue-900 tracking-wide uppercase text-sm">Semestre {sem}</h3>
                       </div>
-                      
+
                       <div className="p-4 flex-1 flex flex-col gap-3 overflow-y-auto max-h-[500px]">
                         {subjects.map((sub) => (
                           <div key={sub.id} className="relative group bg-white border border-slate-200 rounded-xl p-3 hover:border-blue-300 hover:shadow-md transition-all">
                             <button className="absolute top-2 right-2 p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-50 hover:bg-red-50 rounded-md">
                               <X className="w-3.5 h-3.5" />
                             </button>
-                            
+
                             <div className="text-xs font-bold text-slate-400 mb-1 tracking-wider">{sub.code}</div>
                             <div className="font-bold text-slate-800 text-sm leading-tight mb-2 pr-6">{sub.name}</div>
-                            
+
                             <div className="flex items-center gap-2">
                               <span className="inline-flex items-center text-[10px] font-bold uppercase text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
                                 {sub.credits} CR
@@ -301,7 +299,7 @@ export function PensumManager() {
                             </div>
                           </div>
                         ))}
-                        
+
                         <button className="w-full py-3 border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2">
                           <Plus className="w-4 h-4" /> Agregar Asignatura
                         </button>
@@ -312,7 +310,7 @@ export function PensumManager() {
               </motion.div>
             )}
           </AnimatePresence>
-          
+
         </div>
       </main>
     </div>
