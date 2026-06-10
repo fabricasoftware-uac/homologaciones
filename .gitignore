@@ -1,3 +1,9 @@
 node_modules/
 .next/
 next-env.d.ts
+
+# Variables de entorno con claves reales (Groq, Supabase). Solo se versiona .env.example.
+.env
+.env.local
+.env*.local
+.claude
