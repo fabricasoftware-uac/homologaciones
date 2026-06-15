@@ -2,10 +2,29 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Briefcase, BookOpen, BarChart3, Settings, LayoutGrid } from "lucide-react";
+import { Briefcase, BookOpen, BarChart3, LogOut, LayoutGrid } from "lucide-react";
 import clsx from "clsx";
 
-export function Sidebar() {
+import type { Perfil } from "@/types";
+import { cerrarSesion } from "@/lib/auth/acciones";
+
+// Iniciales para el avatar: la primera letra de las dos primeras palabras del nombre.
+function inicialesDe(nombre: string) {
+  const iniciales = nombre
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((palabra) => palabra[0]?.toUpperCase() ?? "")
+    .join("");
+  return iniciales || "?";
+}
+
+const ETIQUETA_ROL: Record<Perfil["rol"], string> = {
+  estudiante: "Estudiante",
+  admin: "Administrador",
+};
+
+export function Sidebar({ perfil }: { perfil: Perfil }) {
   const pathname = usePathname();
   const navItems = [
     { to: "/casos", icon: Briefcase, label: "Casos de Estudio" },
@@ -41,15 +60,24 @@ export function Sidebar() {
       </nav>
 
       <div className="p-4 border-t border-slate-200">
-        <div className="flex items-center space-x-3 px-3 py-2 cursor-pointer hover:bg-slate-50 rounded-lg">
+        <div className="flex items-center space-x-3 px-3 py-2 rounded-lg">
           <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-800 font-bold">
-            JD
+            {inicialesDe(perfil.nombre)}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-900 truncate">Juan Decano</p>
-            <p className="text-xs text-slate-500 truncate">Administrador</p>
+            <p className="text-sm font-medium text-slate-900 truncate">{perfil.nombre}</p>
+            <p className="text-xs text-slate-500 truncate">{ETIQUETA_ROL[perfil.rol]}</p>
           </div>
-          <Settings className="w-4 h-4 text-slate-400" />
+          {/* signOut es una server action; un <form> es la forma más simple de invocarla. */}
+          <form action={cerrarSesion}>
+            <button
+              type="submit"
+              title="Cerrar sesión"
+              className="text-slate-400 hover:text-slate-700 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </form>
         </div>
       </div>
     </aside>

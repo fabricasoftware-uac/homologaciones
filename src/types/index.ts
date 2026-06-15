@@ -12,3 +12,13 @@
 //              (pendiente / aprobado / rechazado).
 //
 // Estos tipos también deberían reflejar las tablas que creemos en Supabase.
+
+// Espejo del enum rol_usuario de la migración 0001.
+export type Rol = "estudiante" | "admin";
+
+// El usuario tal como lo muestra la app: su nombre y su rol. Vive en la tabla `perfil`,
+// enlazada 1:1 con auth.users.
+export type Perfil = {
+  nombre: string;
+  rol: Rol;
+};

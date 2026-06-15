@@ -1,12 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-// Refresca la sesión de Supabase en cada request antes de que llegue a la página.
-//
-// El token de acceso del usuario caduca cada cierto rato; si nadie lo renueva, el servidor
-// deja de reconocer al usuario y lo termina echando. Acá creamos un cliente atado a las
-// cookies de ESTA request, llamamos a getUser() (que renueva el token si hace falta) y
-// devolvemos la respuesta con las cookies ya actualizadas.
+// Rutas que se pueden ver SIN sesión. Todo lo demás (el grupo (app)) queda detrás del login.
+const RUTAS_PUBLICAS = ["/ingresar"];
+
+// Corre en cada request: renueva la sesión de Supabase y, de paso, hace de portero.
+//   - Sin sesión en una ruta privada  -> al login.
+//   - Con sesión parado en el login    -> adentro (la home ya redirige a su sección).
 export async function actualizarSesion(request: NextRequest) {
   let respuesta = NextResponse.next({ request });
 
@@ -19,9 +19,8 @@ export async function actualizarSesion(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesNuevas) {
-          // Guardamos las cookies renovadas en dos lados: en la request (para lo que siga
-          // procesándose en esta misma vuelta) y en la response (para que viajen de vuelta
-          // al navegador del usuario).
+          // Guardamos las cookies renovadas en la request (para lo que siga en esta vuelta)
+          // y en la response (para que viajen de vuelta al navegador).
           cookiesNuevas.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
@@ -35,9 +34,35 @@ export async function actualizarSesion(request: NextRequest) {
   );
 
   // Esta llamada DEBE ir acá, sin código entre la creación del cliente y este getUser():
-  // es lo que valida y renueva la sesión. Mover o demorar esto provoca cierres de sesión
-  // intermitentes difíciles de depurar.
-  await supabase.auth.getUser();
+  // es lo que valida y renueva la sesión. Mover o demorar esto provoca cierres intermitentes.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const ruta = request.nextUrl.pathname;
+  const esPublica = RUTAS_PUBLICAS.some(
+    (publica) => ruta === publica || ruta.startsWith(`${publica}/`),
+  );
+
+  if (!user && !esPublica) {
+    return redirigir(request, "/ingresar", respuesta);
+  }
+  if (user && esPublica) {
+    return redirigir(request, "/", respuesta);
+  }
 
   return respuesta;
+}
+
+// Construye la redirección arrastrándole las cookies que getUser pudo haber renovado: como es
+// una response nueva, si no las copiamos una sesión recién refrescada se perdería en el salto.
+function redirigir(request: NextRequest, destino: string, respuesta: NextResponse) {
+  const url = request.nextUrl.clone();
+  url.pathname = destino;
+
+  const redireccion = NextResponse.redirect(url);
+  respuesta.cookies
+    .getAll()
+    .forEach((cookie) => redireccion.cookies.set(cookie));
+  return redireccion;
 }
