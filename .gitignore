@@ -10,3 +10,6 @@ next-env.d.ts
 .env*.local
 .claude
 text.txt
+
+# Certificados/PDFs de estudiantes de ejemplo: contienen datos personales, no se versionan.
+docs/ejemplos/
