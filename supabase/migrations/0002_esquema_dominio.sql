@@ -1,0 +1,19 @@
+-- Migración 0002 · Esquema de dominio de homologaciones
+--
+-- Los usuarios y sus roles ya viven en la migración 0001 (tabla perfil). Acá modelaremos,
+-- cuando arranque la fase de datos (Fase 2), todo lo propio del negocio:
+--
+--   pensum         -> un plan académico por carrera y versión de la Autónoma del Cauca
+--                     (ej. "Contaduría 2024-1"), que es la universidad DESTINO fija.
+--   asignatura     -> las materias de cada pensum (nombre, código, créditos, semestre).
+--   caso           -> cada solicitud de homologación de un estudiante: a qué perfil pertenece,
+--                     la carrera destino que quiere homologar, el PDF de origen, el estado y
+--                     el semestre sugerido por la IA.
+--   materia_origen -> las materias que extraemos del PDF de la universidad de origen.
+--   vinculo        -> el emparejamiento materia_origen <-> asignatura destino que propone Groq,
+--                     con su porcentaje de similitud y su estado (pendiente/aprobado/rechazado).
+--
+-- La salida principal de un caso es el SEMESTRE en el que podría ubicarse el estudiante; se
+-- calcula de forma determinista a partir de los vínculos aprobados.
+--
+-- Cuando definamos las columnas exactas, este archivo se vuelve la segunda migración real.

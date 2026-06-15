@@ -1,6 +1,14 @@
+import { createBrowserClient } from "@supabase/ssr";
+
 // Cliente de Supabase para el lado del NAVEGADOR (componentes "use client").
 //
-// Aquí crearemos la instancia de Supabase que usan las páginas para leer datos
-// en tiempo real: listar los casos de homologación, traer los pensum guardados, etc.
-// Usa la "anon key" pública (NEXT_PUBLIC_SUPABASE_ANON_KEY), nunca la service role,
-// porque este código viaja al navegador del usuario.
+// Lo usan las pantallas que leen o escriben datos directamente desde el navegador:
+// listar "mis homologaciones", arrastrar el PDF para subirlo, etc. Trabaja con la
+// publishable key, que es segura de exponer porque las reglas RLS de la base de datos
+// limitan qué fila puede ver o tocar cada usuario.
+export function crearClienteNavegador() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  );
+}
