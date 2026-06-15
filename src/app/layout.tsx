@@ -1,28 +1,20 @@
 import type { Metadata } from "next";
-import { Sidebar } from "@/components/sidebar";
 import "@/styles/index.css";
 
+// Layout raíz: solo el cascarón <html>/<body> y los estilos globales. El sidebar y el marco de
+// la app viven ahora en el grupo (app), para que pantallas sin sesión —como /ingresar— no lo
+// hereden. lang="es" porque toda la interfaz está en español.
 export const metadata: Metadata = {
-  title: "homologaciones",
+  title: "TransfoEdu · Homologaciones",
   description:
-    "Facilitates academic deans in evaluating and approving student credit transfers by comparing external transcripts to internal curricula with clear insights.",
+    "Compara el certificado de notas de un estudiante de otra universidad contra el pensum de la Autónoma del Cauca y sugiere en qué semestre podría ubicarse.",
   robots: "noindex, nofollow",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function LayoutRaiz({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>
-        <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
-          <Sidebar />
-          <main className="flex-1 flex flex-col min-w-0">
-            <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-end px-6 md:hidden">
-              <span className="font-bold text-slate-900">TransfoEdu</span>
-            </header>
-            <div className="flex-1 overflow-auto">{children}</div>
-          </main>
-        </div>
-      </body>
+    <html lang="es">
+      <body>{children}</body>
     </html>
   );
 }
