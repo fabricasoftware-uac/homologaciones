@@ -33,7 +33,7 @@ export async function actualizarSesion(request: NextRequest) {
     },
   );
 
-  // Esta llamada DEBE ir acá, sin código entre la creación del cliente y este getUser():
+  // Esta llamada DEBE ir aquí, sin código entre la creación del cliente y este getUser():
   // es lo que valida y renueva la sesión. Mover o demorar esto provoca cierres intermitentes.
   const {
     data: { user },

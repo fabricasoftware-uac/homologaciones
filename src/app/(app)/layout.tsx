@@ -4,7 +4,7 @@ import { crearClienteServidor } from "@/lib/supabase/servidor";
 import { Sidebar } from "@/components/sidebar";
 import type { Perfil } from "@/types";
 
-// Marco visual de la parte privada de la app. Acá leemos el perfil del usuario logueado una
+// Marco visual de la parte privada de la app. Aquí leemos el perfil del usuario logueado una
 // sola vez y se lo pasamos al sidebar; las páginas hijas no tienen que volver a pedirlo.
 export default async function LayoutApp({ children }: { children: React.ReactNode }) {
   const supabase = crearClienteServidor();
@@ -13,7 +13,7 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
   } = await supabase.auth.getUser();
 
   // El middleware ya bloquea el acceso sin sesión; este chequeo es defensa en profundidad
-  // (y además le confirma a TypeScript que de acá en adelante hay usuario).
+  // (y además le confirma a TypeScript que de aquí en adelante hay usuario).
   if (!user) {
     redirect("/ingresar");
   }

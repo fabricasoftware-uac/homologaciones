@@ -19,7 +19,7 @@ export async function ingresar(
   const clave = String(datos.get("password") ?? "");
 
   if (!correo || !clave) {
-    return { error: "Escribí tu correo y tu contraseña." };
+    return { error: "Escribe tu correo y tu contraseña." };
   }
 
   const supabase = crearClienteServidor();
@@ -46,7 +46,7 @@ export async function registrarse(
   const clave = String(datos.get("password") ?? "");
 
   if (!nombre || !correo || !clave) {
-    return { error: "Completá nombre, correo y contraseña." };
+    return { error: "Completa nombre, correo y contraseña." };
   }
   if (clave.length < 8) {
     return { error: "La contraseña debe tener al menos 8 caracteres." };
@@ -62,11 +62,11 @@ export async function registrarse(
   });
 
   if (error) {
-    return { error: "No pudimos crear la cuenta. Revisá los datos e intentá de nuevo." };
+    return { error: "No pudimos crear la cuenta. Revisa los datos e inténtalo de nuevo." };
   }
 
   // En local enable_confirmations está en false, así que el alta ya inicia sesión: entramos
-  // directo. Cuando activemos confirmación por correo, acá habrá que mandar a una pantalla de
-  // "revisá tu bandeja" en vez de a /casos.
+  // directo. Cuando activemos confirmación por correo, aquí habrá que mandar a una pantalla de
+  // "revisa tu bandeja" en vez de a /casos.
   redirect("/casos");
 }

@@ -90,7 +90,7 @@ export default function PaginaIngresar() {
                   type="text"
                   required
                   autoComplete="name"
-                  placeholder="Cómo querés que te mostremos"
+                  placeholder="Tu nombre completo"
                 />
               </div>
               <div className="space-y-2">

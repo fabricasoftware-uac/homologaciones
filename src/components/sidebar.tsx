@@ -2,11 +2,37 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Briefcase, BookOpen, BarChart3, LogOut, LayoutGrid } from "lucide-react";
+import {
+  Briefcase,
+  BookOpen,
+  BarChart3,
+  FileText,
+  LogOut,
+  LayoutGrid,
+  type LucideIcon,
+} from "lucide-react";
 import clsx from "clsx";
 
-import type { Perfil } from "@/types";
+import type { Perfil, Rol } from "@/types";
 import { cerrarSesion } from "@/lib/auth/acciones";
+
+type ItemNav = { to: string; icon: LucideIcon; label: string };
+
+// Cada rol ve su propia navegación: el estudiante solo su flujo de homologación; el admin, la
+// bandeja de casos y la gestión académica.
+const NAV_POR_ROL: Record<Rol, ItemNav[]> = {
+  estudiante: [{ to: "/homologar", icon: FileText, label: "Homologar" }],
+  admin: [
+    { to: "/casos", icon: Briefcase, label: "Casos de Estudio" },
+    { to: "/carreras", icon: BookOpen, label: "Planes Académicos" },
+    { to: "/reportes", icon: BarChart3, label: "Reportes" },
+  ],
+};
+
+const ETIQUETA_ROL: Record<Rol, string> = {
+  estudiante: "Estudiante",
+  admin: "Administrador",
+};
 
 // Iniciales para el avatar: la primera letra de las dos primeras palabras del nombre.
 function inicialesDe(nombre: string) {
@@ -19,18 +45,9 @@ function inicialesDe(nombre: string) {
   return iniciales || "?";
 }
 
-const ETIQUETA_ROL: Record<Perfil["rol"], string> = {
-  estudiante: "Estudiante",
-  admin: "Administrador",
-};
-
 export function Sidebar({ perfil }: { perfil: Perfil }) {
   const pathname = usePathname();
-  const navItems = [
-    { to: "/casos", icon: Briefcase, label: "Casos de Estudio" },
-    { to: "/carreras", icon: BookOpen, label: "Planes Académicos" },
-    { to: "/reportes", icon: BarChart3, label: "Reportes" },
-  ];
+  const navItems = NAV_POR_ROL[perfil.rol];
 
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col hidden md:flex">
