@@ -39,28 +39,46 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Marca (white-label): valores por defecto. El layout raíz los sobreescribe en runtime con los
+     colores que la institución guarde en Configuración. */
+  --marca: #1e40af;
+  --marca-hover: #1e3a8a;
+  --marca-fg: #ffffff;
+  --acento: #0ea5e9;
+  --eliminar: #dc2626;
+  --eliminar-hover: #b91c1c;
+  --eliminar-fg: #ffffff;
+
+  /* Tipografía del producto: Satoshi (cargada en fonts.css). Sobreescribe el stack por defecto, así
+     todas las utilidades font-sans la usan. */
+  --font-sans: "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
+  /* Paleta SLATE para el modo oscuro (coherente con las variantes dark:slate-* de los componentes).
+     background = slate-950, card/popover = slate-900, border/muted = slate-800, texto = slate-100/400. */
+  --background: #020617;
+  --foreground: #f1f5f9;
+  --card: #0f172a;
+  --card-foreground: #f1f5f9;
+  --popover: #0f172a;
+  --popover-foreground: #f1f5f9;
+  --primary: #f1f5f9;
+  --primary-foreground: #0f172a;
+  --secondary: #1e293b;
+  --secondary-foreground: #f1f5f9;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #1e293b;
+  --accent-foreground: #f1f5f9;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #1e293b;
+  --input: #1e293b;
+  --input-background: #0f172a;
+  --switch-background: #334155;
+  --ring: #475569;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
   --chart-1: oklch(0.488 0.243 264.376);
@@ -68,14 +86,14 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  --sidebar: #0f172a;
+  --sidebar-foreground: #f1f5f9;
+  --sidebar-primary: #f1f5f9;
+  --sidebar-primary-foreground: #0f172a;
+  --sidebar-accent: #1e293b;
+  --sidebar-accent-foreground: #f1f5f9;
+  --sidebar-border: #1e293b;
+  --sidebar-ring: #475569;
 }
 
 @theme inline {
@@ -117,6 +135,16 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Color de marca configurable: habilita utilidades bg-marca, text-marca, border-marca,
+     hover:bg-marca-hover, text-marca-fg y bg-acento, todas atadas a las variables de runtime. */
+  --color-marca: var(--marca);
+  --color-marca-hover: var(--marca-hover);
+  --color-marca-fg: var(--marca-fg);
+  --color-acento: var(--acento);
+  --color-eliminar: var(--eliminar);
+  --color-eliminar-hover: var(--eliminar-hover);
+  --color-eliminar-fg: var(--eliminar-fg);
 }
 
 @layer base {
@@ -126,6 +154,7 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
   }
 
   /**
@@ -177,5 +206,52 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+}
+
+/* View Transitions del cambio de tema (claro/oscuro): desactivamos el cross-fade por defecto para
+   que la única animación sea el CÍRCULO que dibuja el botón (boton-tema.tsx). El tema nuevo va
+   ENCIMA del viejo, así el círculo lo "revela". */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+/* Deriva lenta de las orbes del hero de la landing (landing-hero.tsx). */
+@keyframes flotar {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(0, -26px) scale(1.06);
+  }
+}
+
+/* Barrido de brillo para los skeletons de carga (lo usa components/skeleton.tsx). */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Desplazamiento del degradado del fondo de login (lo usa fondo-login.tsx). */
+@keyframes desplazar-gradiente {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
   }
 }

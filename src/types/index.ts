@@ -53,9 +53,37 @@ export type Caso = {
   estudiante_id: string;
   pensum_destino_id: string;
   institucion_origen_nombre: string;
+  // Datos de contacto que deja el invitado al enviar (para que el admin lo contacte con el
+  // resultado). Nullable: los casos viejos, anteriores a la migración 0009, no los tienen.
+  solicitante_nombre: string | null;
+  solicitante_celular: string | null;
+  solicitante_correo: string | null;
   archivo_pdf: string | null;
   estado: EstadoCaso;
   semestre_sugerido: number | null;
+  // Nota que el admin le deja al estudiante (viaja en el veredicto y el acta).
+  nota_admin: string | null;
+  // Nota de uso interno del admin: NO viaja al estudiante ni al acta (migración 0016).
+  nota_interna: string | null;
+  // Token para que el invitado vuelva a su caso sin sesión (migración 0016).
+  token_seguimiento: string;
+  // Auditoría del veredicto: cuándo y qué admin cerró el caso (migración 0016).
+  decidido_en: string | null;
+  decidido_por: string | null;
+  // Constancia de autorización de tratamiento de datos — Habeas Data (migración 0016).
+  autorizo_datos: boolean;
+  autorizo_en: string | null;
+  creado_en: string;
+};
+
+// Un documento adicional que el estudiante adjunta al caso (p. ej. contenidos programáticos /
+// syllabi), además del certificado de notas. Vive en el bucket privado `certificados` (migración 0018).
+export type DocumentoCaso = {
+  id: string;
+  caso_id: string;
+  tipo: string;
+  ruta: string;
+  nombre_archivo: string;
   creado_en: string;
 };
 
@@ -77,6 +105,8 @@ export type Vinculo = {
   materia_origen_id: string;
   asignatura_id: string;
   similitud: number;
+  // Justificación corta que dio la IA al emparejar (migración 0017). Null en vínculos hechos a mano.
+  razon: string | null;
   estado: EstadoVinculo;
   creado_en: string;
 };

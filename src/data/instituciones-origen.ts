@@ -1,0 +1,82 @@
+// Catálogo de instituciones de educación superior (IES) de origen.
+//
+// El estudiante elige de aquí su universidad de procedencia al crear el caso, o la escribe a mano
+// si no aparece. Guardamos solo el NOMBRE como texto en caso.institucion_origen_nombre (el modelo
+// no exige un código), así que esta lista es un simple arreglo de nombres.
+//
+// IMPORTANTE: es un conjunto CURADO de IES colombianas reales y reconocidas, pensado como punto de
+// partida. No es el registro SNIES completo ni incluye códigos SNIES (no los inventamos). Cuando
+// haga falta, se reemplaza por el export oficial del SNIES sin tocar la interfaz: el buscador solo
+// consume este arreglo.
+//
+// Orden alfabético para que sea predecible; de todos modos el buscador filtra por texto.
+
+export const INSTITUCIONES_ORIGEN: string[] = [
+  "Corporación Universitaria Autónoma del Cauca",
+  "Corporación Universitaria Minuto de Dios (UNIMINUTO)",
+  "Escuela Colombiana de Ingeniería Julio Garavito",
+  "Fundación Universitaria del Área Andina",
+  "Fundación Universitaria Konrad Lorenz",
+  "Institución Universitaria Colegio Mayor del Cauca",
+  "Politécnico Colombiano Jaime Isaza Cadavid",
+  "Politécnico Grancolombiano",
+  "Pontificia Universidad Javeriana",
+  "Servicio Nacional de Aprendizaje (SENA)",
+  "Universidad Antonio Nariño",
+  "Universidad Autónoma de Bucaramanga (UNAB)",
+  "Universidad Autónoma de Occidente",
+  "Universidad Autónoma del Caribe",
+  "Universidad CESMAG",
+  "Universidad Católica de Colombia",
+  "Universidad Católica Luis Amigó",
+  "Universidad Central",
+  "Universidad Colegio Mayor de Cundinamarca",
+  "Universidad Cooperativa de Colombia",
+  "Universidad de Antioquia",
+  "Universidad de Caldas",
+  "Universidad de Cartagena",
+  "Universidad de Córdoba",
+  "Universidad de Cundinamarca",
+  "Universidad de Ibagué",
+  "Universidad de La Guajira",
+  "Universidad de La Sabana",
+  "Universidad de Los Andes",
+  "Universidad de Manizales",
+  "Universidad de Medellín",
+  "Universidad de Nariño",
+  "Universidad de Pamplona",
+  "Universidad de San Buenaventura",
+  "Universidad de Santander (UDES)",
+  "Universidad de Sucre",
+  "Universidad del Atlántico",
+  "Universidad del Cauca",
+  "Universidad del Magdalena",
+  "Universidad del Norte",
+  "Universidad del Quindío",
+  "Universidad del Rosario",
+  "Universidad del Tolima",
+  "Universidad del Valle",
+  "Universidad Distrital Francisco José de Caldas",
+  "Universidad EAFIT",
+  "Universidad EAN",
+  "Universidad El Bosque",
+  "Universidad Externado de Colombia",
+  "Universidad Francisco de Paula Santander",
+  "Universidad ICESI",
+  "Universidad Industrial de Santander (UIS)",
+  "Universidad La Gran Colombia",
+  "Universidad Libre",
+  "Universidad Mariana",
+  "Universidad Militar Nueva Granada",
+  "Universidad Nacional de Colombia",
+  "Universidad Pedagógica Nacional",
+  "Universidad Pedagógica y Tecnológica de Colombia (UPTC)",
+  "Universidad Pontificia Bolivariana (UPB)",
+  "Universidad Popular del Cesar",
+  "Universidad Santiago de Cali",
+  "Universidad Santo Tomás",
+  "Universidad Sergio Arboleda",
+  "Universidad Surcolombiana",
+  "Universidad Tecnológica de Pereira (UTP)",
+  "Universidad Tecnológica del Chocó",
+];

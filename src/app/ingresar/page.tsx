@@ -1,128 +1,52 @@
-"use client";
+import { obtenerConfiguracion } from "@/lib/marca/configuracion";
+import { gradienteDe } from "@/lib/marca/fondos";
+import { Logotipo } from "@/components/logotipo";
+import { PanelMarca } from "./panel-marca";
+import { FormularioLogin } from "./formulario-login";
 
-import { useFormState, useFormStatus } from "react-dom";
-import { LayoutGrid } from "lucide-react";
-
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { ingresar, registrarse, type EstadoAuth } from "./acciones";
-
-const estadoInicial: EstadoAuth = null;
-
-// Botón de envío que se deshabilita y cambia de texto mientras la server action está corriendo.
-// useFormStatus solo funciona dentro del <form>, por eso va en su propio componente.
-function BotonEnviar({ children }: { children: React.ReactNode }) {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" className="w-full" disabled={pending}>
-      {pending ? "Procesando…" : children}
-    </Button>
-  );
-}
-
-export default function PaginaIngresar() {
-  // Cada formulario lleva su propio estado de error, devuelto por su server action.
-  const [estadoIngreso, accionIngresar] = useFormState(ingresar, estadoInicial);
-  const [estadoRegistro, accionRegistrarse] = useFormState(registrarse, estadoInicial);
+// Pantalla de ingreso (solo el admin inicia sesión). Layout a DOS PANELES: a la izquierda la cara de
+// marca (degradado elegido + partículas + logo/eslogan), a la derecha el formulario sobre un fondo
+// con textura sutil. En móvil se oculta el panel de marca y queda una cabecera compacta.
+export default async function PaginaIngresar() {
+  const cfg = await obtenerConfiguracion();
+  const gradiente = gradienteDe(cfg.fondoLogin);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 font-sans">
-      <div className="w-full max-w-md">
-        <div className="mb-6 flex items-center justify-center gap-3">
-          <div className="bg-blue-800 p-2 rounded-lg">
-            <LayoutGrid className="text-white w-6 h-6" />
+    <div className="min-h-screen flex font-sans">
+      <PanelMarca marca={cfg} gradiente={gradiente} />
+
+      {/* Panel derecho: ya no es un simple blanco. Lleva un patrón de puntos tenue y dos resplandores
+          de marca difuminados para darle textura y profundidad. */}
+      <div className="relative flex-1 flex items-center justify-center p-6 sm:p-10 bg-slate-50 dark:bg-slate-950 overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-50"
+          style={{
+            backgroundImage: "radial-gradient(circle, #cbd5e1 1px, transparent 1px)",
+            backgroundSize: "22px 22px",
+          }}
+        />
+        <div className="pointer-events-none absolute -top-24 -right-24 w-72 h-72 rounded-full bg-marca/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-16 w-72 h-72 rounded-full bg-acento/10 blur-3xl" />
+
+        <div className="relative w-full max-w-sm">
+          {/* Cabecera de marca compacta: solo en móvil/tablet (en escritorio está el panel izq.). */}
+          <div className="lg:hidden mb-8 flex flex-col items-center text-center">
+            <Logotipo marca={cfg} size="lg" className="mb-4" />
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">{cfg.nombre}</h1>
+            {cfg.eslogan && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{cfg.eslogan}</p>}
           </div>
-          <span className="text-2xl font-bold text-slate-900 tracking-tight">TransfoEdu</span>
+
+          <FormularioLogin marca={cfg} gradiente={gradiente} />
+
+          <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-500">
+            Acceso exclusivo para administradores.
+          </p>
+          <p className="mt-2 text-center text-xs text-slate-400 dark:text-slate-500">
+            <a href="/privacidad" className="hover:text-slate-600 hover:underline">
+              Política de tratamiento de datos
+            </a>
+          </p>
         </div>
-
-        <Tabs
-          defaultValue="ingresar"
-          className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm"
-        >
-          <TabsList className="w-full">
-            <TabsTrigger value="ingresar" className="flex-1">
-              Ingresar
-            </TabsTrigger>
-            <TabsTrigger value="registrarse" className="flex-1">
-              Registrarse
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="ingresar">
-            <form action={accionIngresar} className="space-y-4 pt-4">
-              <div className="space-y-2">
-                <Label htmlFor="correo-ingreso">Correo</Label>
-                <Input
-                  id="correo-ingreso"
-                  name="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="tu@correo.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="clave-ingreso">Contraseña</Label>
-                <Input
-                  id="clave-ingreso"
-                  name="password"
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
-              {estadoIngreso?.error && (
-                <p className="text-sm text-destructive">{estadoIngreso.error}</p>
-              )}
-              <BotonEnviar>Ingresar</BotonEnviar>
-            </form>
-          </TabsContent>
-
-          <TabsContent value="registrarse">
-            <form action={accionRegistrarse} className="space-y-4 pt-4">
-              <div className="space-y-2">
-                <Label htmlFor="nombre-registro">Nombre</Label>
-                <Input
-                  id="nombre-registro"
-                  name="nombre"
-                  type="text"
-                  required
-                  autoComplete="name"
-                  placeholder="Tu nombre completo"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="correo-registro">Correo</Label>
-                <Input
-                  id="correo-registro"
-                  name="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="tu@correo.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="clave-registro">Contraseña</Label>
-                <Input
-                  id="clave-registro"
-                  name="password"
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                />
-                <p className="text-xs text-slate-500">Mínimo 8 caracteres.</p>
-              </div>
-              {estadoRegistro?.error && (
-                <p className="text-sm text-destructive">{estadoRegistro.error}</p>
-              )}
-              <BotonEnviar>Crear cuenta</BotonEnviar>
-            </form>
-          </TabsContent>
-        </Tabs>
       </div>
     </div>
   );

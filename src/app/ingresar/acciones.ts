@@ -36,37 +36,3 @@ export async function ingresar(
   // la siguiente página ya reconoce al usuario.
   redirect("/casos");
 }
-
-export async function registrarse(
-  _estadoPrevio: EstadoAuth,
-  datos: FormData,
-): Promise<EstadoAuth> {
-  const nombre = String(datos.get("nombre") ?? "").trim();
-  const correo = String(datos.get("email") ?? "").trim();
-  const clave = String(datos.get("password") ?? "");
-
-  if (!nombre || !correo || !clave) {
-    return { error: "Completa nombre, correo y contraseña." };
-  }
-  if (clave.length < 8) {
-    return { error: "La contraseña debe tener al menos 8 caracteres." };
-  }
-
-  const supabase = crearClienteServidor();
-  const { error } = await supabase.auth.signUp({
-    email: correo,
-    password: clave,
-    // El nombre viaja como metadata del usuario. El trigger al_crear_usuario (migración 0001)
-    // lo lee de raw_user_meta_data->>'nombre' para rellenar la tabla perfil al darse de alta.
-    options: { data: { nombre } },
-  });
-
-  if (error) {
-    return { error: "No pudimos crear la cuenta. Revisa los datos e inténtalo de nuevo." };
-  }
-
-  // En local enable_confirmations está en false, así que el alta ya inicia sesión: entramos
-  // directo. Cuando activemos confirmación por correo, aquí habrá que mandar a una pantalla de
-  // "revisa tu bandeja" en vez de a /casos.
-  redirect("/casos");
-}

@@ -1,5 +1,9 @@
+import { IconFileText as FileText } from "@tabler/icons-react";
+
 import { crearClienteServidor } from "@/lib/supabase/servidor";
+import { EncabezadoPagina } from "@/components/encabezado";
 import { FormularioHomologacion } from "./formulario";
+import { OnboardingHomologar } from "./onboarding";
 
 // Pantalla principal del estudiante: arma la solicitud de homologación. Cargamos en el servidor
 // las carreras destino activas para llenar el desplegable del formulario.
@@ -12,22 +16,21 @@ export default async function PaginaHomologar() {
     .order("carrera");
 
   return (
-    <div className="h-full flex flex-col bg-slate-50 overflow-y-auto">
-      <header className="bg-white border-b border-slate-200 px-8 py-6 sticky top-0 z-10 shadow-sm shrink-0">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-          Homologar mi carrera
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Sube tu certificado de notas y elige la carrera que quieres cursar en la Autónoma del
-          Cauca. La revisión la hace nuestro equipo; tú solo envías.
-        </p>
-      </header>
+    <div className="bg-slate-50 dark:bg-slate-950">
+      <EncabezadoPagina
+        titulo="Homologar mi carrera"
+        descripcion="Sube tu certificado, elige la carrera y deja tus datos. Nuestro equipo revisa; tú solo envías."
+        icono={FileText}
+      />
 
-      <main className="flex-1 p-8">
+      <main className="flex-1 p-4 sm:p-8">
         <div className="max-w-4xl mx-auto">
           <FormularioHomologacion pensums={pensums ?? []} />
         </div>
       </main>
+
+      {/* Intro interactiva la primera vez (bienvenida + coachmarks). Se autogestiona con localStorage. */}
+      <OnboardingHomologar />
     </div>
   );
 }

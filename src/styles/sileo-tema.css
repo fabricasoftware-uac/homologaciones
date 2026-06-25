@@ -1,0 +1,10 @@
+/* Tema de las notificaciones (sileo) alineado a la marca.
+ *
+ * Sileo colorea cada estado con una variable CSS. El estado "success" viene en verde; lo pasamos al
+ * azul primario de la app (blue-800) para balancear la paleta. El rojo de "error" y el ámbar de
+ * "warning" se mantienen, porque comunican algo distinto.
+ *
+ * Este archivo se importa DESPUÉS de "sileo/styles.css" para que el override gane. */
+:root {
+  --sileo-state-success: oklch(0.424 0.199 265.638); /* blue-800 */
+}

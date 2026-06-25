@@ -1,178 +1,347 @@
-"use client";
+import Link from "next/link";
+import clsx from "clsx";
+import {
+  IconClock as Clock,
+  IconAlertCircle as AlertCircle,
+  IconCircleCheck as CheckCircle2,
+  IconCircleX as XCircle,
+  IconInbox as Inbox,
+  IconBriefcase as Briefcase,
+  IconArrowRight as ArrowRight,
+  IconChevronLeft as ChevronLeft,
+  IconChevronRight as ChevronRight,
+  IconDownload as Download,
+  type Icon as LucideIcon,
+} from "@tabler/icons-react";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Plus, Search, Filter, Clock, CheckCircle2, AlertCircle, TrendingUp, Users } from "lucide-react";
+import { crearClienteServidor } from "@/lib/supabase/servidor";
+import { EncabezadoPagina } from "@/components/encabezado";
+import { TarjetaStat } from "@/components/tarjeta-stat";
+import { FiltroFechas } from "@/components/filtro-fechas";
+import { rangoDesdeParams } from "@/lib/fechas";
+import type { EstadoCaso } from "@/types";
+import { BotonEliminarCaso } from "./boton-eliminar";
+import { BuscadorCasos } from "./buscador";
 
-interface Case {
-  id: string;
-  studentName: string;
-  sourceInstitution: string;
-  targetCareer: string;
-  date: string;
-  status: "Analizando" | "Listo para Revisión" | "Completado";
-  confidence: number;
-}
+// Bandeja de casos del admin (datos reales, paginada, con búsqueda, filtro por estado y filtro de
+// fechas). El acceso ya está restringido a admin por el middleware.
 
-const mockCases: Case[] = [
-  { id: "1", studentName: "Juanito Pérez", sourceInstitution: "Universidad Nacional", targetCareer: "Contaduría Pública", date: "12 Abr 2026", status: "Listo para Revisión", confidence: 85 },
-  { id: "2", studentName: "María Gómez", sourceInstitution: "Politécnico Grancolombiano", targetCareer: "Ingeniería de Sistemas", date: "10 Abr 2026", status: "Completado", confidence: 92 },
-  { id: "3", studentName: "Carlos López", sourceInstitution: "Universidad de Antioquia", targetCareer: "Administración de Empresas", date: "13 Abr 2026", status: "Analizando", confidence: 0 },
-  { id: "4", studentName: "Ana Martínez", sourceInstitution: "SENA", targetCareer: "Contaduría Pública", date: "08 Abr 2026", status: "Listo para Revisión", confidence: 60 },
-  { id: "5", studentName: "Luis Rodríguez", sourceInstitution: "Universidad del Valle", targetCareer: "Ingeniería de Sistemas", date: "05 Abr 2026", status: "Completado", confidence: 78 },
+const PAGINA = 12;
+
+// Días que un caso puede estar "por revisar" antes de marcarlo como demorado (SLA visual).
+const SLA_DIAS = 3;
+
+const ESTADO_UI: Record<EstadoCaso, { etiqueta: string; clases: string; Icono: LucideIcon }> = {
+  procesando: { etiqueta: "Procesando", clases: "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30", Icono: Clock },
+  en_revision: { etiqueta: "Por revisar", clases: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30", Icono: AlertCircle },
+  aprobado: { etiqueta: "Aprobado", clases: "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 border-green-200 dark:border-green-500/30", Icono: CheckCircle2 },
+  rechazado: { etiqueta: "Rechazado", clases: "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30", Icono: XCircle },
+};
+
+// Orden y etiquetas de las pestañas de estado. "" = todos.
+const ESTADOS_TAB: { clave: "" | EstadoCaso; label: string }[] = [
+  { clave: "", label: "Todos" },
+  { clave: "en_revision", label: "Por revisar" },
+  { clave: "procesando", label: "Procesando" },
+  { clave: "aprobado", label: "Aprobados" },
+  { clave: "rechazado", label: "Rechazados" },
 ];
 
-export default function CasosPage() {
-  const router = useRouter();
-  const [searchTerm, setSearchTerm] = useState("");
+const ESTADOS_VALIDOS: EstadoCaso[] = ["procesando", "en_revision", "aprobado", "rechazado"];
 
-  const pendingCount = mockCases.filter(c => c.status === "Listo para Revisión").length;
-  const avgConfidence = Math.round(
-    mockCases.filter(c => c.confidence > 0).reduce((acc, curr) => acc + curr.confidence, 0) /
-    mockCases.filter(c => c.confidence > 0).length
+type CasoFila = {
+  id: string;
+  institucion_origen_nombre: string;
+  solicitante_nombre: string | null;
+  estado: EstadoCaso;
+  creado_en: string;
+  pensum: { carrera: string } | null;
+};
+
+const SELECCION =
+  "id, institucion_origen_nombre, solicitante_nombre, estado, creado_en, pensum:pensum_destino_id (carrera)";
+
+function formatearFecha(iso: string) {
+  return new Intl.DateTimeFormat("es", { day: "numeric", month: "short", year: "numeric" }).format(
+    new Date(iso),
   );
+}
 
-  const filteredCases = mockCases.filter(c =>
-    c.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.sourceInstitution.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.targetCareer.toLowerCase().includes(searchTerm.toLowerCase())
+function diasDesde(iso: string) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+}
+
+export default async function PaginaCasos({
+  searchParams,
+}: {
+  searchParams: { periodo?: string; desde?: string; hasta?: string; page?: string; q?: string; estado?: string };
+}) {
+  const rango = rangoDesdeParams(searchParams);
+  const pagina = Math.max(1, Number(searchParams.page) || 1);
+  const from = (pagina - 1) * PAGINA;
+  const to = from + PAGINA - 1;
+
+  // Término de búsqueda saneado: quitamos los caracteres que romperían la sintaxis de .or() de
+  // PostgREST (comas y paréntesis) antes de armar el filtro ilike.
+  const termino = (searchParams.q ?? "").replace(/[,()]/g, " ").trim();
+  const orTexto = termino
+    ? `solicitante_nombre.ilike.%${termino}%,solicitante_correo.ilike.%${termino}%,institucion_origen_nombre.ilike.%${termino}%`
+    : null;
+
+  const estadoFiltro = ESTADOS_VALIDOS.includes(searchParams.estado as EstadoCaso)
+    ? (searchParams.estado as EstadoCaso)
+    : null;
+
+  const supabase = crearClienteServidor();
+
+  // Página de la tabla: aplica fecha + texto + estado, ordena y pagina (con total para paginar).
+  let qPagina = supabase.from("caso").select(SELECCION, { count: "exact" });
+  if (rango.desde) qPagina = qPagina.gte("creado_en", rango.desde);
+  if (rango.hasta) qPagina = qPagina.lte("creado_en", rango.hasta);
+  if (orTexto) qPagina = qPagina.or(orTexto);
+  if (estadoFiltro) qPagina = qPagina.eq("estado", estadoFiltro);
+
+  // Conteos por estado para las pestañas: mismo filtro de fecha + texto, SIN el de estado (cada
+  // pestaña cuenta lo suyo). Son head counts (solo el número).
+  const conteoBuilders = ESTADOS_VALIDOS.map((clave) => {
+    let b = supabase.from("caso").select("id", { count: "exact", head: true }).eq("estado", clave);
+    if (rango.desde) b = b.gte("creado_en", rango.desde);
+    if (rango.hasta) b = b.lte("creado_en", rango.hasta);
+    if (orTexto) b = b.or(orTexto);
+    return b;
+  });
+
+  const [resultado, ...conteos] = await Promise.all([
+    qPagina.order("creado_en", { ascending: false }).range(from, to),
+    ...conteoBuilders,
+  ]);
+
+  const casos = (resultado.data ?? []) as unknown as CasoFila[];
+  const totalFiltrado = resultado.count ?? 0;
+  const totalPaginas = Math.max(1, Math.ceil(totalFiltrado / PAGINA));
+
+  // Conteos por estado y total (suma de todos los estados del rango/búsqueda).
+  const porEstado = ESTADOS_VALIDOS.reduce(
+    (acc, clave, i) => ({ ...acc, [clave]: conteos[i].count ?? 0 }),
+    {} as Record<EstadoCaso, number>,
   );
+  const total = ESTADOS_VALIDOS.reduce((s, clave) => s + porEstado[clave], 0);
 
-  const getStatusBadge = (status: Case["status"]) => {
-    switch (status) {
-      case "Analizando":
-        return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200"><Clock className="w-3.5 h-3.5" /> Analizando</span>;
-      case "Listo para Revisión":
-        return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"><AlertCircle className="w-3.5 h-3.5" /> Listo para Revisión</span>;
-      case "Completado":
-        return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200"><CheckCircle2 className="w-3.5 h-3.5" /> Completado</span>;
-    }
-  };
+  // Construye una URL conservando los filtros actuales, con los cambios indicados.
+  function hrefCon(cambios: { estado?: string | null; page?: number }, base = "/casos") {
+    const sp = new URLSearchParams();
+    if (searchParams.periodo) sp.set("periodo", searchParams.periodo);
+    if (searchParams.desde) sp.set("desde", searchParams.desde);
+    if (searchParams.hasta) sp.set("hasta", searchParams.hasta);
+    if (searchParams.q) sp.set("q", searchParams.q);
+    const estado = "estado" in cambios ? cambios.estado : searchParams.estado;
+    if (estado) sp.set("estado", estado);
+    if (cambios.page && cambios.page > 1) sp.set("page", String(cambios.page));
+    const q = sp.toString();
+    return q ? `${base}?${q}` : base;
+  }
 
   return (
-    <div className="h-full flex flex-col bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-8 py-6 sticky top-0 z-10">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Bandeja de Casos</h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Gestiona y revisa las homologaciones pendientes (Profesor Iván).
-            </p>
+    <div className="bg-slate-50 dark:bg-slate-950">
+      <EncabezadoPagina
+        titulo="Bandeja de casos"
+        descripcion="Revisa las homologaciones que la IA dejó listas y emite el veredicto."
+        icono={Briefcase}
+        accion={
+          <div className="flex flex-wrap items-center gap-2">
+            <BuscadorCasos />
+            <FiltroFechas />
           </div>
-          <button
-            className="flex items-center gap-2 bg-blue-800 text-white hover:bg-blue-900 font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors"
-            onClick={() => router.push("/casos/nuevo")}
-          >
-            <Plus className="w-4 h-4" />
-            Nuevo Caso
-          </button>
-        </div>
-      </header>
+        }
+      />
 
-      <main className="flex-1 overflow-auto p-8">
-        <div className="max-w-7xl mx-auto space-y-8">
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-start gap-4">
-              <div className="p-3 bg-amber-100 text-amber-700 rounded-lg">
-                <AlertCircle className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Evaluaciones Pendientes</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{pendingCount}</p>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-start gap-4">
-              <div className="p-3 bg-green-100 text-green-700 rounded-lg">
-                <TrendingUp className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Confianza Promedio (IA)</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{avgConfidence}%</p>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-start gap-4">
-              <div className="p-3 bg-blue-100 text-blue-700 rounded-lg">
-                <Users className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Casos Totales</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{mockCases.length}</p>
-              </div>
-            </div>
+      <main className="p-4 sm:p-8">
+        <div className="max-w-7xl mx-auto space-y-7">
+          <div className="grid grid-cols-1 @xl:grid-cols-3 gap-5">
+            <TarjetaStat icono={AlertCircle} acento="amber" titulo="Por revisar" valor={porEstado.en_revision} delayMs={0} />
+            <TarjetaStat icono={Clock} acento="marca" titulo="Procesando" valor={porEstado.procesando} delayMs={60} />
+            <TarjetaStat icono={Inbox} acento="slate" titulo="Casos totales" valor={total} delayMs={120} />
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row gap-4 justify-between items-center bg-slate-50/50">
-              <div className="relative w-full sm:w-96">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-4 w-4 text-slate-400" />
-                </div>
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white focus:ring-blue-500 focus:border-blue-500 transition-colors shadow-sm"
-                  placeholder="Buscar estudiante, institución o carrera..."
-                />
-              </div>
-              <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm">
-                <Filter className="w-4 h-4" />
-                Filtros
-              </button>
+          {/* Filtro por estado (pestañas con conteo) + exportar. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex flex-wrap gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1">
+              {ESTADOS_TAB.map((tab) => {
+                const activo = (estadoFiltro ?? "") === tab.clave;
+                const cantidad = tab.clave === "" ? total : porEstado[tab.clave];
+                return (
+                  <Link
+                    key={tab.clave || "todos"}
+                    href={hrefCon({ estado: tab.clave || null })}
+                    className={clsx(
+                      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                      activo ? "bg-marca text-marca-fg" : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800",
+                    )}
+                  >
+                    {tab.label}
+                    <span
+                      className={clsx(
+                        "text-xs font-bold px-1.5 py-0.5 rounded-full",
+                        activo ? "bg-white/20" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
+                      )}
+                    >
+                      {cantidad}
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
 
+            <a
+              href={hrefCon({}, "/casos/export")}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Exportar CSV
+            </a>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden animate-in fade-in-0 slide-in-from-bottom-2 fill-mode-both duration-500" style={{ animationDelay: "160ms" }}>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                <thead className="bg-slate-50/80 dark:bg-slate-900/50">
                   <tr>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Estudiante</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Institución Origen</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Carrera Destino</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Fecha</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Estado</th>
-                    <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Acciones</th>
+                    <Th>Solicitante</Th>
+                    <Th>Carrera destino</Th>
+                    <Th>Fecha</Th>
+                    <Th>Estado</Th>
+                    <th className="px-6 py-3.5 text-right text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      Acción
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredCases.map((c) => (
-                    <tr
-                      key={c.id}
-                      className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
-                      onClick={() => router.push(`/casos/${c.id}`)}
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center font-bold text-xs mr-3">
-                            {c.studentName.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800">
+                  {casos.map((caso) => {
+                    const ui = ESTADO_UI[caso.estado];
+                    const dias = diasDesde(caso.creado_en);
+                    const demorado = caso.estado === "en_revision" && dias >= SLA_DIAS;
+                    return (
+                      <tr key={caso.id} className="hover:bg-marca/5 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                            {caso.solicitante_nombre ?? "Invitado"}
                           </div>
-                          <div className="text-sm font-bold text-slate-900">{c.studentName}</div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{c.sourceInstitution}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-800">{c.targetCareer}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{c.date}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(c.status)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <span className="text-blue-600 group-hover:text-blue-800 transition-colors">
-                          {c.status === "Completado" ? "Ver Detalles" : "Revisar Estudio"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                          <div className="text-xs text-slate-400 dark:text-slate-500">{caso.institucion_origen_nombre}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700 dark:text-slate-200">
+                          {caso.pensum?.carrera ?? "—"}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
+                          <div className="flex items-center gap-2">
+                            {formatearFecha(caso.creado_en)}
+                            {demorado && (
+                              <span
+                                title={`Lleva ${dias} días por revisar`}
+                                className={clsx(
+                                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border",
+                                  dias >= 7
+                                    ? "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border-red-200 dark:border-red-500/30"
+                                    : "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30",
+                                )}
+                              >
+                                <Clock className="w-3 h-3" />
+                                {dias}d
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${ui.clases}`}
+                          >
+                            <ui.Icono className="w-3.5 h-3.5" />
+                            {ui.etiqueta}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end gap-4">
+                            <Link
+                              href={`/casos/${caso.id}`}
+                              className="inline-flex items-center gap-1 text-marca font-semibold hover:gap-1.5 transition-all"
+                            >
+                              {caso.estado === "en_revision" ? "Revisar" : "Ver detalle"}
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </Link>
+                            <BotonEliminarCaso casoId={caso.id} />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-              {filteredCases.length === 0 && (
-                <div className="p-8 text-center text-slate-500">
-                  No se encontraron casos que coincidan con la búsqueda.
+
+              {casos.length === 0 && (
+                <div className="p-16 text-center">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center">
+                    <Inbox className="w-7 h-7" />
+                  </div>
+                  <p className="mt-4 text-slate-500 dark:text-slate-400">
+                    {termino || estadoFiltro
+                      ? "Ningún caso coincide con los filtros."
+                      : "No hay casos en este rango de fechas."}
+                  </p>
                 </div>
               )}
             </div>
+
+            {/* Paginación */}
+            {totalPaginas > 1 && (
+              <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-sm text-slate-500 dark:text-slate-400">
+                  Página {pagina} de {totalPaginas} · {totalFiltrado} casos
+                </span>
+                <div className="flex items-center gap-2">
+                  <Enlace href={hrefCon({ page: pagina - 1 })} activo={pagina > 1}>
+                    <ChevronLeft className="w-4 h-4" /> Anterior
+                  </Enlace>
+                  <Enlace href={hrefCon({ page: pagina + 1 })} activo={pagina < totalPaginas}>
+                    Siguiente <ChevronRight className="w-4 h-4" />
+                  </Enlace>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>
     </div>
+  );
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return (
+    <th className="px-6 py-3.5 text-left text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+      {children}
+    </th>
+  );
+}
+
+// Botón de paginación: enlace si está disponible, o un span deshabilitado si no.
+function Enlace({
+  href,
+  activo,
+  children,
+}: {
+  href: string;
+  activo: boolean;
+  children: React.ReactNode;
+}) {
+  const clase = "inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border";
+  if (!activo) {
+    return (
+      <span className={clsx(clase, "border-slate-200 dark:border-slate-800 text-slate-300 cursor-not-allowed")}>
+        {children}
+      </span>
+    );
+  }
+  return (
+    <Link href={href} className={clsx(clase, "border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800")}>
+      {children}
+    </Link>
   );
 }

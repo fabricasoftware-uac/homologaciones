@@ -1,42 +1,42 @@
-import { redirect } from "next/navigation";
-
 import { crearClienteServidor } from "@/lib/supabase/servidor";
-import { Sidebar } from "@/components/sidebar";
+import { AppShell } from "@/components/app-shell";
+import { EscuchaCasos } from "@/components/escucha-casos";
+import { obtenerConfiguracion } from "@/lib/marca/configuracion";
 import type { Perfil } from "@/types";
 
-// Marco visual de la parte privada de la app. Aquí leemos el perfil del usuario logueado una
-// sola vez y se lo pasamos al sidebar; las páginas hijas no tienen que volver a pedirlo.
+// Marco visual de la app. Leemos el perfil una sola vez y se lo pasamos al sidebar; las páginas
+// hijas no tienen que volver a pedirlo.
+//
+// Aquí entran tanto el invitado (sin sesión o con sesión anónima) en su flujo público como el admin
+// en su panel. El candado por rol de las rutas de admin lo aplica el middleware; este layout solo
+// arma el marco con el perfil que corresponda.
 export default async function LayoutApp({ children }: { children: React.ReactNode }) {
   const supabase = crearClienteServidor();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // El middleware ya bloquea el acceso sin sesión; este chequeo es defensa en profundidad
-  // (y además le confirma a TypeScript que de aquí en adelante hay usuario).
-  if (!user) {
-    redirect("/ingresar");
+  // Sin sesión = invitado que todavía no envió nada. No lo expulsamos: le mostramos su flujo con un
+  // perfil neutro. Si hay sesión, leemos su perfil real (el del invitado anónimo dice "Invitado").
+  let perfil: Perfil = { nombre: "Invitado", rol: "estudiante" };
+  if (user) {
+    const { data } = await supabase
+      .from("perfil")
+      .select("nombre, rol")
+      .eq("id", user.id)
+      .single();
+    perfil = (data as Perfil | null) ?? perfil;
   }
 
-  const { data } = await supabase
-    .from("perfil")
-    .select("nombre, rol")
-    .eq("id", user.id)
-    .single();
-
-  // Si el perfil aún no existiera (no debería, lo crea el trigger al registrarse), mostramos
-  // algo neutro en lugar de romper el layout.
-  const perfil: Perfil = (data as Perfil | null) ?? { nombre: "Usuario", rol: "estudiante" };
+  const marca = await obtenerConfiguracion();
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
-      <Sidebar perfil={perfil} />
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-end px-6 md:hidden">
-          <span className="font-bold text-slate-900">TransfoEdu</span>
-        </header>
-        <div className="flex-1 overflow-auto">{children}</div>
-      </main>
-    </div>
+    <>
+      {/* El marco (sidebar colapsable + header móvil) es cliente: necesita estado para ocultar/mostrar
+          el menú. El layout resuelve el perfil y la marca, y se los entrega. */}
+      <AppShell perfil={perfil} marca={marca}>{children}</AppShell>
+      {/* Solo el admin: avisos en vivo + auto-actualización de la bandeja. */}
+      {perfil.rol === "admin" && <EscuchaCasos />}
+    </>
   );
 }
