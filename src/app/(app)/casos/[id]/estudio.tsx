@@ -669,9 +669,10 @@ function GrupoSemestre({ sem, children }: { sem: number; children: React.ReactNo
             transition={{ duration: 0.2, ease: "easeOut" }}
             className="overflow-hidden"
           >
-            {/* px-1/pb-1: dejan aire para que el anillo de selección (ring-2) NO se corte con el
-                overflow-hidden de la animación de despliegue. */}
-            <div className="space-y-2.5 px-1 pt-2 pb-1">{children}</div>
+            {/* px-2/pt-3/pb-2: dejan aire para que el anillo de selección (ring-2) y la insignia
+                flotante "Enlazada" (que sobresale -10px arriba / -8px a la derecha de la tarjeta)
+                NO se corten con el overflow-hidden de la animación de despliegue. */}
+            <div className="space-y-2.5 px-2 pt-3 pb-2">{children}</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -725,14 +726,23 @@ function Tarjeta({
         ? "border-l-amber-400 dark:border-l-amber-500"
         : "border-l-transparent";
 
-  // La SELECCIÓN / RELACIÓN se marca con un anillo AZUL CIELO (sky): distinto de los colores de
-  // estado (ámbar/verde) y del color de marca, y brillante para resaltar en los temas oscuros. La
-  // tarjeta seleccionada lleva anillo sólido + sombra; su pareja en la otra columna, el mismo anillo
-  // más tenue, para leer la conexión de un vistazo.
+  // Superficie: neutra por defecto (se adapta a la paleta del tema). Cuando la tarjeta participa del
+  // PAR ACTIVO (la seleccionada o su contraparte enlazada), se tiñe de sky suave: como es un estado
+  // TEMPORAL de interacción —no decoración permanente— el tinte no ensucia ningún tema y hace que el
+  // enlace se lea como un todo, no solo por el borde.
+  const parActivo = seleccionada || resaltada;
+  const claseSuperficie = parActivo
+    ? "bg-sky-50 dark:bg-sky-500/10"
+    : "bg-white dark:bg-slate-900";
+
+  // El PAR ACTIVO lleva el MISMO anillo sky sólido en ambas tarjetas (mismo color = misma relación;
+  // sky es distinto de los colores de estado y de marca, y brilla sobre los temas oscuros). La
+  // seleccionada se distingue por la sombra más fuerte y su etiqueta; la contraparte, por la insignia
+  // flotante "Enlazada" (abajo).
   const claseSeleccion = seleccionada
-    ? "ring-2 ring-sky-500 dark:ring-sky-400 shadow-lg shadow-sky-500/15"
+    ? "ring-2 ring-sky-500 dark:ring-sky-400 shadow-lg shadow-sky-500/20"
     : resaltada
-      ? "ring-2 ring-sky-500/60 dark:ring-sky-400/50"
+      ? "ring-2 ring-sky-500 dark:ring-sky-400 shadow-md shadow-sky-500/10"
       : "";
 
   return (
@@ -746,8 +756,10 @@ function Tarjeta({
       whileTap={onClick ? { scale: 0.985 } : undefined}
       className={clsx(
         // Superficie neutra que se adapta al tema; barra de acento izquierda (border-l-4) + anillo.
-        "scroll-mt-4 rounded-xl border border-l-4 p-3.5 transition-all select-none",
-        "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900",
+        // relative: ancla la insignia flotante "Enlazada" de la contraparte del par activo.
+        "relative scroll-mt-4 rounded-xl border border-l-4 p-3.5 transition-all select-none",
+        "border-slate-200 dark:border-slate-800",
+        claseSuperficie,
         claseEstado,
         claseSeleccion,
         // El hover NO toca el borde (pisaría el color de la barra izquierda por especificidad de
@@ -755,6 +767,19 @@ function Tarjeta({
         onClick && "cursor-pointer hover:shadow-md dark:hover:shadow-black/30",
       )}
     >
+      {/* Insignia flotante sobre la CONTRAPARTE del par activo: el anillo solo no alcanzaba para
+          ubicar de un vistazo con quién se enlaza la selección. Aparece con un "pop" (el movimiento
+          es la señal que más atrae el ojo) y usa sky sólido, legible sobre cualquier tema. */}
+      {resaltada && (
+        <motion.span
+          initial={{ scale: 0.5, opacity: 0, y: 4 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 420, damping: 22 }}
+          className="absolute -top-2.5 -right-2 z-10 flex items-center gap-1 bg-sky-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md shadow-sky-500/40 pointer-events-none"
+        >
+          <LinkIcon className="w-3 h-3" /> Enlazada
+        </motion.span>
+      )}
       <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[18px]">
         {codigo ? (
           <span className="text-[10px] font-bold tracking-wide text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
