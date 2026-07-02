@@ -1,5 +1,5 @@
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { extraerMateriasDeTexto, extraerMateriasPorVision } from "@/lib/groq/extraer-materias";
+import { extraerMateriasDeTexto, extraerMateriasPorVision, parsearSENA } from "@/lib/groq/extraer-materias";
 import { emparejarMaterias } from "@/lib/groq/homologar";
 import { llamarGemini } from "@/lib/gemini/cliente";
 
@@ -50,15 +50,14 @@ export async function procesarCaso(
     (asignaturasRaw as { id: string; nombre: string; creditos: number; semestre: number }[] | null) ??
     [];
 
-  // 2 y 3. Extraer materias del PDF y guardarlas. Si el certificado trae capa de texto, lo leemos
-  // como texto; si está ESCANEADO (sin texto) y tenemos los bytes, lo leemos por VISIÓN (OCR). Si la
-  // IA no responde en ninguno de los dos, extraer* lanza ErrorIANoDisponible y el pipeline se corta
-  // (lo maneja quien invoca, para avisarle al usuario).
-  const materias =
-    textoPdf.trim().length >= MIN_TEXTO_LEGIBLE
-      ? await extraerMateriasDeTexto(textoPdf, esSena)
+  // 2 y 3. Extraer materias del PDF y guardarlas. Si es SENA: parser determinístico (regex).
+  // Si es universitario con texto: IA. Si está escaneado: visión (OCR).
+  const materias = esSena
+    ? parsearSENA(textoPdf)
+    : textoPdf.trim().length >= MIN_TEXTO_LEGIBLE
+      ? await extraerMateriasDeTexto(textoPdf)
       : bytesPdf
-        ? await extraerMateriasPorVision(bytesPdf, esSena)
+        ? await extraerMateriasPorVision(bytesPdf)
         : [];
 
   let idsMateria: string[] = [];

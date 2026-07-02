@@ -9,6 +9,8 @@ export type MateriaExtraida = {
   creditos: number | null;
   nota: string | null;
   semestre_origen: number | null;
+  tipo?: string;
+  metadatos?: Record<string, unknown> | null;
 };
 
 const SISTEMA = `Eres un extractor de datos académicos. Recibes el TEXTO de un certificado de notas o historial académico universitario, donde las materias suelen venir agrupadas por semestre o periodo académico.
@@ -42,26 +44,6 @@ No inventes materias que no aparezcan en las imágenes. Ignora encabezados, tota
 Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"materias": [{"nombre": "...", "codigo": null, "creditos": null, "nota": null, "semestre_origen": 1}]}`;
 
-// SENA: en vez de materias organizadas por semestre, el SENA estructura su formación por
-// COMPETENCIAS, cada una con RESULTADOS DE APRENDIZAJE (RA) e INTENSIDAD HORARIA (IH).
-// Extraemos CADA COMPETENCIA como UNA SOLA materia, con su nombre y todos los RAs en el
-// campo "nombre". El formato JSON es IDÉNTICO al universitario ({"materias": [...]})
-// para que el modelo no tenga que cambiar de estructura.
-const SISTEMA_SENA = `Eres un extractor de datos académicos especializado en certificados del SENA de Colombia. Recibes el TEXTO de una constancia de notas de formación titulada, donde los contenidos NO son materias sino COMPETENCIAS con RESULTADOS DE APRENDIZAJE (RA).
-
-Formato SENA: cada bloque tiene nombre de COMPETENCIA, "REGISTRO DE COMPETENCIAS EVALUADAS", "IH" (horas), evaluación (A = Aprobado) y "RESULTADOS DE APRENDIZAJE" con items numerados.
-
-Extrae CADA COMPETENCIA como UNA SOLA materia. Para cada una:
-- nombre: arma UN SOLO TEXTO que incluya el nombre de la competencia y todos sus RAs, con este formato: "Competencia:\\n<nombre>\\n\\nResultados de aprendizaje:\\n- <RA1>\\n- <RA2>\\n- <RA3>"
-- codigo: null
-- creditos: el número de horas (IH) como entero, SIN dividir
-- nota: "Aprobado"
-- semestre_origen: null
-
-No inventes competencias. Ignora encabezados y firma.
-Responde ÚNICAMENTE un objeto JSON con esta forma:
-{"materias": [{"nombre": "Competencia:\\nDesarrollar la solucion de software\\n\\nResultados de aprendizaje:\\n- Planear actividades\\n- Construir la base de datos", "codigo": null, "creditos": 1008, "nota": "Aprobado", "semestre_origen": null}]}`;
-
 const SISTEMA_VISION_SENA = `Eres un extractor de datos académicos especializado en certificados del SENA. Recibes IMÁGENES de una constancia con COMPETENCIAS y RESULTADOS DE APRENDIZAJE (RA).
 
 Lee las imágenes y extrae CADA COMPETENCIA como UNA SOLA materia. Para cada una:
@@ -76,15 +58,10 @@ Responde ÚNICAMENTE un objeto JSON con esta forma:
 
 const MAX_PAGINAS_VISION = 8;
 
-function aNumeroONull(valor: unknown): number | null {
+function aEnteroONull(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === "") return null;
   const n = Number(valor);
-  return Number.isFinite(n) ? n : null;
-}
-
-function aEnteroONull(valor: unknown): number | null {
-  const n = aNumeroONull(valor);
-  return n !== null && Number.isInteger(n) ? n : null;
+  return Number.isFinite(n) && Number.isInteger(n) ? n : null;
 }
 
 function aTextoONull(valor: unknown): string | null {
@@ -109,6 +86,7 @@ function parsearMaterias(contenido: string | null): MateriaExtraida[] {
           creditos: aEnteroONull(m.creditos),
           nota: aTextoONull(m.nota),
           semestre_origen: aEnteroONull(m.semestre_origen),
+          tipo: "materia",
         };
       })
       .filter((m): m is MateriaExtraida => m !== null);
@@ -118,82 +96,81 @@ function parsearMaterias(contenido: string | null): MateriaExtraida[] {
   }
 }
 
-// Intenta parsear JSON de una respuesta que puede venir con texto alrededor, markdown, etc.
-// A diferencia de parsearMaterias (que espera JSON limpio de json_mode), esta función es más
-// tolerante: busca el primer { y el último } e intenta parsear ese fragmento.
-function extraerJsonDeTexto(contenido: string | null): string | null {
-  if (!contenido) return null;
-  // Intento directo (el modelo pudo responder JSON limpio aunque no estuviera en json_mode).
-  try {
-    JSON.parse(contenido);
-    return contenido;
-  } catch { /* seguimos */ }
-  // Buscar bloque de código markdown: ```json ... ```
-  const md = contenido.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  if (md?.[1]) {
-    try {
-      JSON.parse(md[1]);
-      return md[1];
-    } catch { /* seguimos */ }
+// ── Parser determinístico para certificados del SENA ──
+export function parsearSENA(texto: string): MateriaExtraida[] {
+  const txt = texto.replace(/\s+/g, " ").trim();
+
+  const regex = /(.+?)\s+[\d,]+\s+([AD])\s+REGISTRO\s+DE\s+COMPETENCIAS\s+EVALUADAS\s+EVAL\s+IH\s+(\d+)\s+RESULTADOS\s+DE\s+APRENDIZAJE\s+(.+?)(?=\s*(?:[\d,]+\s+[AD]\s+REGISTRO|$))/g;
+
+  const materias: MateriaExtraida[] = [];
+  let m: RegExpExecArray | null;
+  let esPrimero = true;
+
+  while ((m = regex.exec(txt)) !== null) {
+    let nombre = m[1].trim();
+    const ih = parseInt(m[3], 10);
+    const raTexto = m[4];
+    const evaluacion = m[2];
+
+    if (esPrimero) {
+      const limpio = nombre.match(/(?:ha\s+)?aprobado:\s*(.+)/i);
+      if (limpio) nombre = limpio[1].trim();
+      esPrimero = false;
+    }
+
+    nombre = nombre.replace(/\s+/g, " ");
+
+    const ras: string[] = [];
+    const partesRA = raTexto.split(/\s+(?=\d{2}\s+)/);
+    for (const p of partesRA) {
+      const textoRA = p.replace(/^\d{2}\s+/, "").replace(/\s+/g, " ").trim();
+      if (textoRA.length > 10) ras.push(textoRA);
+    }
+
+    const raFormateado = ras.length > 0
+      ? "\n\nResultados de aprendizaje:\n" + ras.map((r) => `- ${r}`).join("\n")
+      : "";
+
+    const nota = evaluacion === "A" ? "Aprobado" : evaluacion === "D" ? "No aprobado" : evaluacion;
+
+    materias.push({
+      nombre: `Competencia:\n${nombre}${raFormateado}`,
+      codigo: null,
+      creditos: ih,
+      nota,
+      semestre_origen: null,
+      tipo: "competencia",
+      metadatos: { resultados_aprendizaje: ras },
+    });
   }
-  // Buscar el rango del primer { al último }.
-  const inicio = contenido.indexOf("{");
-  const fin = contenido.lastIndexOf("}");
-  if (inicio !== -1 && fin > inicio) {
-    const fragmento = contenido.slice(inicio, fin + 1);
-    try { JSON.parse(fragmento); return fragmento; } catch { /* probamos cerrando */ }
-    // El JSON puede estar truncado (modelo sin suficientes tokens de salida). La última entrada
-    // del array probablemente quedó incompleta: intentamos cerrar con "]}\n" y parsear.
-    try {
-      const cerrado = fragmento + "]}\n";
-      const p = JSON.parse(cerrado);
-      if (p && typeof p === "object" && "materias" in p) return cerrado;
-    } catch { /* no se pudo */ }
-  }
-  return null;
+
+  console.log(`[sena] Parser extrajo ${materias.length} competencias del certificado.`);
+  return materias;
 }
 
-export async function extraerMateriasDeTexto(
-  texto: string,
-  esSena = false,
-): Promise<MateriaExtraida[]> {
+export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtraida[]> {
   const recorte = texto.slice(0, 12000);
-  const sistemaPrompt = esSena ? SISTEMA_SENA : SISTEMA;
-  // SENA: NO usamos JSON mode porque el texto del SENA (competencias, RAs, IH, formato tabular)
-  // es tan distinto al universitario que TODOS los modelos de Groq fallan el json_validate.
-  // En vez de eso, dejamos que el modelo responda libre y extraemos el JSON nosotros.
-  const jsonMode = !esSena;
-  // SENA: las respuestas son MUY largas (cada competencia incluye todos sus RAs, y son ~19
-  // competencias). Los modelos por defecto cortan la salida antes de completar el JSON. Subimos
-  // el tope para que quepa la respuesta completa.
-  const maxTokens = esSena ? 8192 : undefined;
 
-  const contenidoCrudo =
+  const contenido =
     (await llamarGroq(
       [
-        { role: "system", content: sistemaPrompt },
+        { role: "system", content: SISTEMA },
         { role: "user", content: recorte },
       ],
-      { json: jsonMode, maxTokens },
+      { json: true },
     )) ??
     (await llamarGemini(
       [
-        { role: "system", content: sistemaPrompt },
+        { role: "system", content: SISTEMA },
         { role: "user", content: recorte },
       ],
-      { json: jsonMode, maxTokens },
+      { json: true },
     ));
 
-  if (contenidoCrudo === null) {
+  if (contenido === null) {
     throw new ErrorIANoDisponible("No se pudieron extraer las materias del certificado (texto).");
   }
-
-  const contenidoJson = esSena ? extraerJsonDeTexto(contenidoCrudo) : contenidoCrudo;
-  if (!contenidoJson) {
-    console.error("[groq] No se pudo extraer JSON de la respuesta SENA:", contenidoCrudo.slice(0, 500));
-    throw new ErrorIANoDisponible("No se pudieron extraer las materias del certificado (texto).");
-  }
-  return parsearMaterias(contenidoJson);
+  return parsearMaterias(contenido);
 }
 
 function dedupePorNombre(lista: MateriaExtraida[]): MateriaExtraida[] {
