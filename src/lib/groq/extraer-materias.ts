@@ -38,6 +38,15 @@ function aNumeroONull(valor: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// creditos y semestre_origen son columnas smallint: solo aceptan enteros. Un valor decimal
+// (típico cuando la IA mete una nota "4.5" en el campo de créditos) rompería el INSERT con
+// "invalid input syntax for type smallint", así que lo descartamos (null) en vez de reventar el
+// pipeline entero y dejar el caso atascado en 'procesando'. Un "3.0" sigue valiendo (es entero).
+function aEnteroONull(valor: unknown): number | null {
+  const n = aNumeroONull(valor);
+  return n !== null && Number.isInteger(n) ? n : null;
+}
+
 function aTextoONull(valor: unknown): string | null {
   if (valor === null || valor === undefined) return null;
   const s = String(valor).trim();
@@ -66,9 +75,9 @@ export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtr
         return {
           nombre,
           codigo: aTextoONull(m.codigo),
-          creditos: aNumeroONull(m.creditos),
+          creditos: aEnteroONull(m.creditos),
           nota: aTextoONull(m.nota),
-          semestre_origen: aNumeroONull(m.semestre_origen),
+          semestre_origen: aEnteroONull(m.semestre_origen),
         };
       })
       .filter((m): m is MateriaExtraida => m !== null);

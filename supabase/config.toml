@@ -173,9 +173,13 @@ enable_refresh_token_rotation = true
 # Allows refresh tokens to be reused after expiry, up to the specified interval in seconds.
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
-# Allow/disallow new user signups to your project. Apagado: no hay registro público; los
-# administradores se crean desde el panel con la admin API (el invitado anónimo usa su propia flag).
-enable_signup = false
+# Allow/disallow new user signups to your project. DEBE quedar en true: en GoTrue el flag
+# GOTRUE_DISABLE_SIGNUP (enable_signup = false) corta TODOS los signups al entrar al handler,
+# ANTES de mirar si es anónimo, así que apagarlo también rompe signInAnonymously() (devuelve
+# 'signup_disabled'). No hay UI de registro público y los administradores se crean con la admin
+# API; el riesgo de dejar /signup abierto se acota con RLS (un usuario suelto solo es 'estudiante'
+# y solo ve sus propios casos).
+enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
 # Encendido: el estudiante NO se registra; entra como invitado (sesión anónima) para homologar.
 enable_anonymous_sign_ins = true

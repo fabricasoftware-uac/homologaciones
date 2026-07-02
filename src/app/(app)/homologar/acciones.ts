@@ -132,6 +132,9 @@ export async function crearHomologacion(
   if (!user) {
     const { data, error } = await supabase.auth.signInAnonymously();
     if (error || !data.user) {
+      // Dejamos el motivo real en el log del servidor: el mensaje al usuario es genérico, pero si
+      // esto falla suele ser config del stack (p. ej. enable_signup=false apaga también el anónimo).
+      console.error("[homologar] Falló signInAnonymously", error);
       return { error: "No pudimos iniciar tu sesión de invitado. Inténtalo de nuevo." };
     }
     user = data.user;
