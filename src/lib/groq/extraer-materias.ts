@@ -36,6 +36,20 @@ No inventes materias que no estén en el texto. Ignora encabezados, totales y pr
 Devuelve las materias ORDENADAS por semestre. Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"materias": [{"nombre": "...", "codigo": null, "creditos": null, "nota": null, "semestre_origen": 1}]}`;
 
+// Variante SENA para certificados escaneados (visión/OCR).
+const SISTEMA_VISION_SENA = `Eres un extractor de datos académicos especializado en certificados del SENA (Servicio Nacional de Aprendizaje) de Colombia. Recibes IMÁGENES de las páginas de una constancia de notas de formación titulada, donde los contenidos NO son materias tradicionales sino COMPETENCIAS con RESULTADOS DE APRENDIZAJE.
+
+Lee las imágenes y extrae CADA COMPETENCIA como una materia. Para cada una:
+- nombre: el nombre de la competencia LIMPIO (sin los resultados de aprendizaje). Normaliza mayúsculas a oración.
+- codigo: null.
+- creditos: el número de horas (IH) de la competencia como entero.
+- nota: "Aprobado" si la evaluación es "A"; si es "D", "No aprobado".
+- semestre_origen: null (el SENA no tiene semestres).
+
+No inventes competencias. Ignora encabezados y firma.
+Responde ÚNICAMENTE un objeto JSON con esta forma:
+{"materias": [{"nombre": "...", "codigo": null, "creditos": 48, "nota": "Aprobado", "semestre_origen": null}]}`;
+
 // Variante para certificados ESCANEADOS: en vez de texto recibe imágenes de las páginas y las "lee".
 const SISTEMA_VISION = `Eres un extractor de datos académicos. Recibes una o varias IMÁGENES de las páginas de un certificado de notas o historial académico universitario, donde las materias suelen venir agrupadas por semestre o periodo académico.
 
@@ -102,29 +116,65 @@ function parsearMaterias(contenido: string | null): MateriaExtraida[] {
   }
 }
 
+// Documento del SENA (Servicio Nacional de Aprendizaje): en vez de materias organizadas por semestre,
+// el SENA estructura su formación por COMPETENCIAS, cada una con RESULTADOS DE APRENDIZAJE e
+// INTENSIDAD HORARIA (IH). La evaluación es cualitativa (A = Aprobado). No hay semestres.
+// Detectamos por frases clave del membrete y la columna "REGISTRO DE COMPETENCIAS EVALUADAS".
+function esDocumentoSENA(texto: string): boolean {
+  return /SERVICIO NACIONAL DE APRENDIZAJE|REGISTRO DE COMPETENCIAS EVALUADAS/i.test(texto);
+}
+
+const SISTEMA_SENA = `Eres un extractor de datos académicos especializado en certificados del SENA (Servicio Nacional de Aprendizaje) de Colombia. Recibes el TEXTO de una constancia de notas de formación titulada, donde los contenidos NO son materias tradicionales sino COMPETENCIAS con RESULTADOS DE APRENDIZAJE.
+
+Formato típico SENA: cada bloque contiene:
+- Nombre de la COMPETENCIA (en mayúsculas o mixto, puede ocupar varias líneas).
+- Una línea con la nota numérica (ej. "4,5"), evaluación cualitativa ("A" = Aprobado), "REGISTRO DE COMPETENCIAS EVALUADAS", "EVAL", "IH" y un número (horas).
+- "RESULTADOS DE APRENDIZAJE" seguido de items numerados (01, 02, 03...) que describen lo que el estudiante aprendió.
+
+Extrae CADA COMPETENCIA como una materia. Para cada una:
+- nombre: el nombre de la competencia LIMPIO (sin los resultados de aprendizaje, sin las notas, sin "REGISTRO DE COMPETENCIAS..."). Normaliza mayúsculas a oración (primera letra mayúscula, resto minúscula) para facilitar el emparejamiento posterior.
+- codigo: null (el SENA no usa códigos de materia).
+- creditos: el número de horas (IH) de la competencia como entero (48, 144, etc.).
+- nota: "Aprobado" si la evaluación es "A"; si es "D", "No aprobado".
+- semestre_origen: null (el SENA no tiene semestres).
+
+No inventes competencias. Ignora encabezados, el membrete institucional y la firma final.
+Responde ÚNICAMENTE un objeto JSON con esta forma:
+{"materias": [{"nombre": "...", "codigo": null, "creditos": 48, "nota": "Aprobado", "semestre_origen": null}]}`;
+
+function parsearCompetenciasSENA(contenido: string | null): MateriaExtraida[] {
+  return parsearMaterias(contenido);
+}
+
 // Camino normal: certificado con capa de texto.
 export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtraida[]> {
   const recorte = texto.slice(0, 12000); // suficiente para un historial completo; controla tokens
+
+  const esSena = esDocumentoSENA(recorte);
+  const sistemaPrompt = esSena ? SISTEMA_SENA : SISTEMA;
+
   const contenido =
     (await llamarGroq(
       [
-        { role: "system", content: SISTEMA },
+        { role: "system", content: sistemaPrompt },
         { role: "user", content: recorte },
       ],
       { json: true },
     )) ??
     (await llamarGemini(
       [
-        { role: "system", content: SISTEMA },
+        { role: "system", content: sistemaPrompt },
         { role: "user", content: recorte },
       ],
       { json: true },
     ));
-  // null = ningún modelo respondió (servicio caído / sin cupo). NO es "no hay materias": es que no
-  // pudimos ni preguntar. Lo señalamos para que el pipeline avise al usuario en vez de guardar un
-  // caso vacío como si estuviera todo bien.
+
   if (contenido === null) {
     throw new ErrorIANoDisponible("No se pudieron extraer las materias del certificado (texto).");
+  }
+
+  if (esSena) {
+    return parsearCompetenciasSENA(contenido);
   }
   return parsearMaterias(contenido);
 }
@@ -144,38 +194,43 @@ function dedupePorNombre(lista: MateriaExtraida[]): MateriaExtraida[] {
 // (OCR). Va UNA página por llamada —el modelo admite máx 3 imágenes y varias páginas grandes juntas
 // exceden el límite de tokens/min (413)— y fusiona lo de todas. Espejo de extraerAsignaturasPorVision.
 export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<MateriaExtraida[]> {
-  // numPages desde una COPIA (las operaciones de pdf.js pueden "consumir"/desligar el buffer).
   const pdf = await getDocumentProxy(bytes.slice());
   const paginas = Math.min(pdf.numPages, MAX_PAGINAS_VISION);
 
   const materias: MateriaExtraida[] = [];
-  let huboFallo = false; // alguna página no obtuvo respuesta (típicamente 429: sin cupo/tokens)
+  let huboFallo = false;
+  let esSena = false;
+  let primerTexto = "";
+
   for (let i = 1; i <= paginas; i++) {
-    // A renderPageAsImage se le pasan los BYTES (no el proxy) y una copia por página, para que unpdf
-    // configure el canvas de Node sin usar un buffer ya consumido.
     const url = await renderPageAsImage(bytes.slice(), i, {
       canvasImport: () => import("@napi-rs/canvas"),
-      scale: 1.5, // suficiente para OCR y consume MENOS tokens que scale 2 (menos riesgo de 429)
+      scale: 1.5,
       toDataURL: true,
     });
     if (typeof url !== "string") continue;
 
-    // Rotamos el modelo por página (round-robin): cada modelo de visión tiene su propio límite de
-    // tokens/min, así que repartir las páginas entre ellos evita agotar uno solo con todo el PDF.
+    const promptFinal =
+      esSena ? SISTEMA_VISION_SENA : SISTEMA_VISION;
+
     const contenido =
-      (await llamarGroqVision(SISTEMA_VISION, [url], i - 1)) ??
-      (await llamarGeminiVision(SISTEMA_VISION, [url], i - 1));
+      (await llamarGroqVision(promptFinal, [url], i - 1)) ??
+      (await llamarGeminiVision(promptFinal, [url], i - 1));
+
     if (contenido === null) {
-      huboFallo = true; // p. ej. rate-limit del tier: seguimos, pero lo tenemos en cuenta abajo
+      huboFallo = true;
       continue;
     }
-    materias.push(...parsearMaterias(contenido));
+
+    const extraidas = parsearMaterias(contenido);
+    materias.push(...extraidas);
+
+    if (i === 1 && !esSena) {
+      primerTexto = extraidas.map((m) => m.nombre).join(" ");
+      esSena = esDocumentoSENA(primerTexto);
+    }
   }
 
-  // Distinguimos "documento sin materias" de "no pudimos leerlo": si quedamos en CERO y ADEMÁS alguna
-  // página falló (típico 429 por falta de cupo en la página con la tabla), NO es que no haya materias
-  // —es que no pudimos leerlas—. Lo señalamos para que el pipeline avise al usuario ("IA no
-  // disponible, reintenta") en vez de guardar un caso vacío como si todo hubiera ido bien.
   if (materias.length === 0 && huboFallo) {
     throw new ErrorIANoDisponible("No se pudo leer el certificado escaneado (posible falta de cupo).");
   }
