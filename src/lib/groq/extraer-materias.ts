@@ -140,7 +140,7 @@ export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<Mater
   const paginas = Math.min(pdf.numPages, MAX_PAGINAS_VISION);
 
   const materias: MateriaExtraida[] = [];
-  let algunaRespuesta = false;
+  let huboFallo = false; // alguna página no obtuvo respuesta (típicamente 429: sin cupo/tokens)
   for (let i = 1; i <= paginas; i++) {
     // A renderPageAsImage se le pasan los BYTES (no el proxy) y una copia por página, para que unpdf
     // configure el canvas de Node sin usar un buffer ya consumido.
@@ -152,15 +152,19 @@ export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<Mater
     if (typeof url !== "string") continue;
 
     const contenido = await llamarGroqVision(SISTEMA_VISION, [url]);
-    if (contenido === null) continue; // esta página falló (rate-limit/caída): seguimos con las demás
-    algunaRespuesta = true;
+    if (contenido === null) {
+      huboFallo = true; // p. ej. rate-limit del tier: seguimos, pero lo tenemos en cuenta abajo
+      continue;
+    }
     materias.push(...parsearMaterias(contenido));
   }
 
-  // Si NINGUNA página logró respuesta, el servicio está caído o sin cupo: lo señalamos para que el
-  // pipeline avise al usuario (en vez de guardar un caso vacío como si todo hubiera ido bien).
-  if (!algunaRespuesta) {
-    throw new ErrorIANoDisponible("No se pudo leer el certificado escaneado (visión).");
+  // Distinguimos "documento sin materias" de "no pudimos leerlo": si quedamos en CERO y ADEMÁS alguna
+  // página falló (típico 429 por falta de cupo en la página con la tabla), NO es que no haya materias
+  // —es que no pudimos leerlas—. Lo señalamos para que el pipeline avise al usuario ("IA no
+  // disponible, reintenta") en vez de guardar un caso vacío como si todo hubiera ido bien.
+  if (materias.length === 0 && huboFallo) {
+    throw new ErrorIANoDisponible("No se pudo leer el certificado escaneado (posible falta de cupo).");
   }
   return dedupePorNombre(materias);
 }
