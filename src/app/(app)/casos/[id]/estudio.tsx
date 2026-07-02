@@ -539,7 +539,7 @@ export function EstudioHomologacion({
             initial={{ y: 80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 80, opacity: 0 }}
-            className="absolute bottom-4 left-3 right-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-auto bg-slate-900 text-white rounded-2xl shadow-2xl px-4 py-3 flex flex-col md:flex-row md:items-center gap-2.5 md:gap-4 z-40 border border-slate-700"
+            className="absolute bottom-4 left-3 right-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-auto bg-slate-900/95 backdrop-blur-md text-white rounded-2xl shadow-2xl px-4 py-3 flex flex-col md:flex-row md:items-center gap-2.5 md:gap-4 z-40 border border-white/10"
           >
             <div className="text-center md:text-left min-w-0">
               <span className="text-sm font-medium block">
@@ -552,8 +552,10 @@ export function EstudioHomologacion({
                       : "Elige una asignatura destino"}
               </span>
               {/* La justificación de la IA, para que el admin entienda el porqué de la sugerencia. */}
+              {/* La barra es SIEMPRE oscura: nada de variantes dark: aquí (un dark:text-slate-500
+                  la volvía ilegible sobre el fondo oscuro). */}
               {!destino && sugerenciaPendiente && vinculoOrigen?.razon && (
-                <span className="text-xs text-slate-400 dark:text-slate-500 block mt-0.5 max-w-md">
+                <span className="text-xs text-slate-400 block mt-0.5 max-w-md">
                   {vinculoOrigen.razon}
                 </span>
               )}
@@ -563,7 +565,7 @@ export function EstudioHomologacion({
                 <button
                   onClick={hacerVincular}
                   disabled={pendiente}
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
+                  className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
                 >
                   <LinkIcon className="w-4 h-4" /> Vincular
                 </button>
@@ -575,7 +577,7 @@ export function EstudioHomologacion({
                     <button
                       onClick={hacerConfirmar}
                       disabled={pendiente}
-                      className="flex items-center gap-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
+                      className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
                     >
                       <Check className="w-4 h-4" strokeWidth={3} /> Confirmar vinculación
                     </button>
@@ -584,14 +586,14 @@ export function EstudioHomologacion({
                     <button
                       onClick={hacerDesvincular}
                       disabled={pendiente}
-                      className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
+                      className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
                     >
                       <Unlink className="w-4 h-4" /> Desvincular
                     </button>
                   )}
                 </>
               )}
-              <button onClick={limpiar} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-white">
+              <button onClick={limpiar} className="p-1.5 text-slate-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -655,7 +657,7 @@ function GrupoSemestre({ sem, children }: { sem: number; children: React.ReactNo
           className={clsx("w-3.5 h-3.5 transition-transform duration-200", !abierto && "-rotate-90")}
         />
         <span>{sem === 0 ? "Sin semestre" : `Semestre ${sem}`}</span>
-        <span className="font-semibold normal-case text-slate-300">{cantidad}</span>
+        <span className="font-semibold normal-case text-slate-300 dark:text-slate-600">{cantidad}</span>
         <span className="flex-1 border-b border-slate-100 dark:border-slate-800 ml-1" />
       </button>
       <AnimatePresence initial={false}>
@@ -710,25 +712,27 @@ function Tarjeta({
   tipo: "origen" | "destino";
   onClick?: () => void;
 }) {
-  // El color de la RELACIÓN va en una BARRA LATERAL SÓLIDA (border-l-4), no en un tinte translúcido:
-  // un acento sólido se distingue sobre CUALQUIER tema (claro u oscuro, azulado o neutro). Ámbar =
-  // sugerencia de la IA (pendiente), verde = aprobada. Los demás bordes quedan neutros. Antes usábamos
-  // violeta + tinte al 15-20%, que se perdía en los temas oscuros azulados/índigo.
+  // Principio de diseño: la SUPERFICIE de la tarjeta es SIEMPRE neutra (blanco / superficie del tema
+  // oscuro elegido), y el color solo SEÑALA, no inunda. El estado del vínculo va en una barra de
+  // acento sólida a la izquierda (ámbar = sugerencia IA pendiente, verde = aprobada) + insignias; un
+  // acento fino y sólido se lee sobre cualquier tema sin pelear con su paleta, mientras que teñir toda
+  // la tarjeta (lo anterior) se veía distinto —y a veces mal— en cada tema. La barra existe siempre
+  // (transparente si no hay vínculo) para que todas las tarjetas alineen igual.
   const claseEstado =
     estado === "aprobado"
-      ? "border-slate-200 dark:border-slate-800 border-l-4 border-l-emerald-500 bg-emerald-50 dark:bg-emerald-500/15"
+      ? "border-l-emerald-500"
       : estado === "pendiente"
-        ? "border-slate-200 dark:border-slate-800 border-l-4 border-l-amber-500 bg-amber-50 dark:bg-amber-500/15"
-        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-sm";
+        ? "border-l-amber-400 dark:border-l-amber-500"
+        : "border-l-transparent";
 
-  // La SELECCIÓN / RELACIÓN se marca con un anillo AZUL CIELO (sky): un color distinto de los de
-  // estado (ámbar/verde) y del color de marca, con buen contraste en todos los temas —los oscuros son
-  // casi negros, así que el cian brillante resalta—. La tarjeta seleccionada lleva anillo sólido +
-  // sombra; su pareja en la otra columna, el mismo anillo más tenue, para leer la conexión de un vistazo.
+  // La SELECCIÓN / RELACIÓN se marca con un anillo AZUL CIELO (sky): distinto de los colores de
+  // estado (ámbar/verde) y del color de marca, y brillante para resaltar en los temas oscuros. La
+  // tarjeta seleccionada lleva anillo sólido + sombra; su pareja en la otra columna, el mismo anillo
+  // más tenue, para leer la conexión de un vistazo.
   const claseSeleccion = seleccionada
-    ? "ring-2 ring-sky-500 dark:ring-sky-400 shadow-lg shadow-sky-500/20"
+    ? "ring-2 ring-sky-500 dark:ring-sky-400 shadow-lg shadow-sky-500/15"
     : resaltada
-      ? "ring-2 ring-sky-500/60 dark:ring-sky-400/60"
+      ? "ring-2 ring-sky-500/60 dark:ring-sky-400/50"
       : "";
 
   return (
@@ -741,15 +745,19 @@ function Tarjeta({
       whileHover={onClick ? { y: -2 } : undefined}
       whileTap={onClick ? { scale: 0.985 } : undefined}
       className={clsx(
-        "scroll-mt-4 rounded-xl border p-3.5 transition-colors select-none",
+        // Superficie neutra que se adapta al tema; barra de acento izquierda (border-l-4) + anillo.
+        "scroll-mt-4 rounded-xl border border-l-4 p-3.5 transition-all select-none",
+        "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900",
         claseEstado,
         claseSeleccion,
-        onClick && "cursor-pointer",
+        // El hover NO toca el borde (pisaría el color de la barra izquierda por especificidad de
+        // :hover): la elevación la dan la sombra y el whileHover de motion.
+        onClick && "cursor-pointer hover:shadow-md dark:hover:shadow-black/30",
       )}
     >
       <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[18px]">
         {codigo ? (
-          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-100 dark:border-slate-800">
+          <span className="text-[10px] font-bold tracking-wide text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
             {codigo}
           </span>
         ) : (
@@ -768,23 +776,18 @@ function Tarjeta({
           </span>
         )}
         {vinculada && (
-          <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full">
+          <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-300 dark:border-emerald-500/40 px-2 py-0.5 rounded-full">
             <LinkIcon className="w-3 h-3" /> Vinculado
           </span>
         )}
       </div>
-      <h3
-        className={clsx(
-          "font-bold text-sm leading-snug",
-          tipo === "destino" ? "text-blue-900 dark:text-blue-200" : "text-slate-800 dark:text-slate-200",
-        )}
-      >
-        {nombre}
-      </h3>
+      {/* El nombre es SIEMPRE neutro: qué columna es ya lo dice el encabezado de la columna. Antes el
+          destino iba en azul fijo, que chocaba con el color de marca y con los temas oscuros azulados. */}
+      <h3 className="font-bold text-sm leading-snug text-slate-800 dark:text-slate-100">{nombre}</h3>
       <div className="flex items-center gap-2 mt-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
         {creditos != null && <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{creditos} CR</span>}
         {nota && (
-          <span className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-1.5 py-0.5 rounded ml-auto">
+          <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded ml-auto">
             Nota {nota}
           </span>
         )}
