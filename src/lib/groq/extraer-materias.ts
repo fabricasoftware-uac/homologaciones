@@ -141,10 +141,14 @@ function extraerJsonDeTexto(contenido: string | null): string | null {
   const fin = contenido.lastIndexOf("}");
   if (inicio !== -1 && fin > inicio) {
     const fragmento = contenido.slice(inicio, fin + 1);
+    try { JSON.parse(fragmento); return fragmento; } catch { /* probamos cerrando */ }
+    // El JSON puede estar truncado (modelo sin suficientes tokens de salida). La última entrada
+    // del array probablemente quedó incompleta: intentamos cerrar con "]}\n" y parsear.
     try {
-      JSON.parse(fragmento);
-      return fragmento;
-    } catch { /* no hay JSON válido */ }
+      const cerrado = fragmento + "]}\n";
+      const p = JSON.parse(cerrado);
+      if (p && typeof p === "object" && "materias" in p) return cerrado;
+    } catch { /* no se pudo */ }
   }
   return null;
 }
@@ -159,6 +163,10 @@ export async function extraerMateriasDeTexto(
   // es tan distinto al universitario que TODOS los modelos de Groq fallan el json_validate.
   // En vez de eso, dejamos que el modelo responda libre y extraemos el JSON nosotros.
   const jsonMode = !esSena;
+  // SENA: las respuestas son MUY largas (cada competencia incluye todos sus RAs, y son ~19
+  // competencias). Los modelos por defecto cortan la salida antes de completar el JSON. Subimos
+  // el tope para que quepa la respuesta completa.
+  const maxTokens = esSena ? 8192 : undefined;
 
   const contenidoCrudo =
     (await llamarGroq(
@@ -166,15 +174,14 @@ export async function extraerMateriasDeTexto(
         { role: "system", content: sistemaPrompt },
         { role: "user", content: recorte },
       ],
-      { json: jsonMode },
+      { json: jsonMode, maxTokens },
     )) ??
     (await llamarGemini(
       [
         { role: "system", content: sistemaPrompt },
         { role: "user", content: recorte },
       ],
-      // Gemini también falla si forzamos json_mode con texto SENA; por eso mismo flag.
-      { json: jsonMode },
+      { json: jsonMode, maxTokens },
     ));
 
   if (contenidoCrudo === null) {

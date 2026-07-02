@@ -68,6 +68,7 @@ export type OpcionesGroq = {
   modelos?: string[]; // override de la cadena de modelos (por defecto, MODELOS)
   temperatura?: number;
   json?: boolean; // pide la respuesta en formato JSON (response_format: json_object)
+  maxTokens?: number; // máximo de tokens de salida (útil para respuestas largas como SENA)
 };
 
 type IntentoResultado =
@@ -94,6 +95,7 @@ async function intentarModelo(
         model: modelo,
         temperature: opciones.temperatura ?? 0,
         ...(opciones.json ? { response_format: { type: "json_object" } } : {}),
+        ...(opciones.maxTokens ? { max_tokens: opciones.maxTokens } : {}),
         messages: mensajes,
       }),
     });

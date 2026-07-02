@@ -47,6 +47,7 @@ export type OpcionesGemini = {
   modelos?: string[];
   temperatura?: number;
   json?: boolean;
+  maxTokens?: number;
 };
 
 export async function llamarGemini(
@@ -67,6 +68,9 @@ export async function llamarGemini(
   }
   if (opciones.json) {
     config.responseMimeType = "application/json";
+  }
+  if (opciones.maxTokens) {
+    config.maxOutputTokens = opciones.maxTokens;
   }
 
   const contents = conversation.map((m) => ({
