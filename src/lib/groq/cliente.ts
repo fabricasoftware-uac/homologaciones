@@ -20,6 +20,27 @@ export class ErrorIANoDisponible extends Error {
   }
 }
 
+// Reintento ante 429 (rate limit por tokens/min). Groq dice cuánto esperar y a menudo son
+// MILISEGUNDOS (p. ej. "try again in 577.5ms"): respetamos esa espera y reintentamos el MISMO modelo,
+// porque su cupo se libera enseguida. Si la espera fuera larga, no aguantamos aquí (para no exceder el
+// timeout de la función en Vercel) y pasamos al siguiente modelo, que tiene su propio cupo.
+const MAX_REINTENTOS_429 = 2;
+const TOPE_ESPERA_MS = 2500;
+
+const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Cuánto pide esperar Groq ante un 429: primero el header retry-after (segundos); si no, lo saca del
+// mensaje ("try again in 577.5ms" / "in 2.5s"). Por defecto, 1s.
+function esperaTrasRateLimit(respuesta: Response, detalle: string): number {
+  const header = respuesta.headers.get("retry-after");
+  if (header && Number.isFinite(Number(header))) return Math.ceil(Number(header) * 1000);
+  const m = detalle.match(/try again in ([\d.]+)\s*(ms|s)\b/i);
+  if (m && Number.isFinite(Number(m[1]))) {
+    return m[2].toLowerCase() === "s" ? Math.ceil(Number(m[1]) * 1000) : Math.ceil(Number(m[1]));
+  }
+  return 1000;
+}
+
 // Orden de preferencia (calidad primero). Los tres son modelos VIGENTES de Groq (verificado contra
 // su tabla de deprecaciones, jul-2026) y todos soportan JSON mode. La familia gpt-oss va primero y
 // qwen3.6 cierra como red de una familia distinta, por si un problema afecta a toda una familia. Si
@@ -41,7 +62,7 @@ export type OpcionesGroq = {
 
 type IntentoResultado =
   | { ok: true; contenido: string }
-  | { ok: false; reintentar: boolean; motivo: string };
+  | { ok: false; reintentar: boolean; motivo: string; esperaMs?: number };
 
 // Un intento con UN modelo. Decide si vale la pena pasar al siguiente:
 //   - 401/403 (credencial) -> NO: la misma key falla en todos.
@@ -70,7 +91,8 @@ async function intentarModelo(
     if (!respuesta.ok) {
       const detalle = await respuesta.text();
       const reintentar = respuesta.status !== 401 && respuesta.status !== 403;
-      return { ok: false, reintentar, motivo: `HTTP ${respuesta.status} ${detalle}` };
+      const esperaMs = respuesta.status === 429 ? esperaTrasRateLimit(respuesta, detalle) : undefined;
+      return { ok: false, reintentar, motivo: `HTTP ${respuesta.status} ${detalle}`, esperaMs };
     }
 
     const datos = (await respuesta.json()) as {
@@ -99,14 +121,30 @@ export async function llamarGroq(
 
   const modelos = opciones.modelos ?? MODELOS;
   for (const modelo of modelos) {
-    const resultado = await intentarModelo(apiKey, modelo, mensajes, opciones);
-    if (resultado.ok) return resultado.contenido;
+    for (let intento = 0; ; intento++) {
+      const resultado = await intentarModelo(apiKey, modelo, mensajes, opciones);
+      if (resultado.ok) return resultado.contenido;
 
-    if (!resultado.reintentar) {
-      console.error(`[groq] Error no recuperable con ${modelo}: ${resultado.motivo}`);
-      return null;
+      if (!resultado.reintentar) {
+        console.error(`[groq] Error no recuperable con ${modelo}: ${resultado.motivo}`);
+        return null;
+      }
+
+      // 429 con espera CORTA: dormimos lo que pide Groq y reintentamos el MISMO modelo (su cupo se
+      // libera en el acto). Si la espera es larga o se acaban los reintentos, pasamos al siguiente.
+      if (
+        resultado.esperaMs != null &&
+        resultado.esperaMs <= TOPE_ESPERA_MS &&
+        intento < MAX_REINTENTOS_429
+      ) {
+        console.warn(`[groq] ${modelo} rate-limited; reintento en ${resultado.esperaMs}ms...`);
+        await dormir(resultado.esperaMs + 150);
+        continue;
+      }
+
+      console.warn(`[groq] El modelo ${modelo} falló (${resultado.motivo}). Probando el siguiente...`);
+      break;
     }
-    console.warn(`[groq] El modelo ${modelo} falló (${resultado.motivo}). Probando el siguiente...`);
   }
 
   console.error("[groq] Todos los modelos de la cadena fallaron.");
@@ -138,35 +176,51 @@ export async function llamarGroqVision(prompt: string, imagenes: string[]): Prom
   ];
 
   for (const modelo of MODELOS_VISION) {
-    try {
-      const respuesta = await fetch(GROQ_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: modelo,
-          temperature: 0,
-          // qwen3.6 es un modelo de razonamiento: sin esto emite un bloque <think>…</think> que rompe
-          // el JSON (y en modo estricto a veces devuelve vacío). "hidden" hace que razone por dentro y
-          // entregue SOLO el JSON final.
-          reasoning_format: "hidden",
-          response_format: { type: "json_object" },
-          messages: [{ role: "user", content: contenido }],
-        }),
-      });
-      if (respuesta.ok) {
-        const datos = (await respuesta.json()) as { choices?: { message?: { content?: string } }[] };
-        const c = datos.choices?.[0]?.message?.content;
-        if (c) return c;
-      } else {
+    for (let intento = 0; ; intento++) {
+      try {
+        const respuesta = await fetch(GROQ_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: modelo,
+            temperature: 0,
+            // qwen3.6 es un modelo de razonamiento: sin esto emite un bloque <think>…</think> que rompe
+            // el JSON (y en modo estricto a veces devuelve vacío). "hidden" hace que razone por dentro y
+            // entregue SOLO el JSON final.
+            reasoning_format: "hidden",
+            response_format: { type: "json_object" },
+            messages: [{ role: "user", content: contenido }],
+          }),
+        });
+        if (respuesta.ok) {
+          const datos = (await respuesta.json()) as { choices?: { message?: { content?: string } }[] };
+          const c = datos.choices?.[0]?.message?.content;
+          if (c) return c;
+          break; // respondió vacío: probamos el siguiente modelo
+        }
+
         const detalle = await respuesta.text();
         if (respuesta.status === 401 || respuesta.status === 403) {
           console.error(`[groq-vision] Credencial inválida: ${detalle}`);
           return null;
         }
+
+        // 429 con espera corta: esperamos y reintentamos el MISMO modelo (su cupo se libera pronto).
+        if (respuesta.status === 429 && intento < MAX_REINTENTOS_429) {
+          const espera = esperaTrasRateLimit(respuesta, detalle);
+          if (espera <= TOPE_ESPERA_MS) {
+            console.warn(`[groq-vision] ${modelo} rate-limited; reintento en ${espera}ms...`);
+            await dormir(espera + 150);
+            continue;
+          }
+        }
+
         console.warn(`[groq-vision] ${modelo} falló (HTTP ${respuesta.status}). Probando el siguiente...`);
+        break;
+      } catch (error) {
+        console.warn(`[groq-vision] ${modelo} falló por red (${String(error)}). Probando el siguiente...`);
+        break;
       }
-    } catch (error) {
-      console.warn(`[groq-vision] ${modelo} falló por red (${String(error)}). Probando el siguiente...`);
     }
   }
 
