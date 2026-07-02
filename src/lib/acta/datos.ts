@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import { obtenerConfiguracion } from "@/lib/marca/configuracion";
 import type { EstadoCaso } from "@/types";
 import { generarActaPdf, type DatosActa, type FilaActa } from "./documento";
+import { urlSitio } from "@/lib/url-sitio";
 
 // Carga y ensamblado de datos para el acta de homologación. Lo comparten las dos rutas que la
 // generan: /casos/[id]/acta (admin, cliente con sesión) y /seguimiento/[token]/acta (estudiante,
@@ -77,7 +78,7 @@ export async function responderActa(
 
   // QR de verificación: apunta a la página pública de seguimiento del caso (por token). Un tercero
   // escanea el acta y confirma su autenticidad. Best-effort: si falla, el acta sale sin QR.
-  const sitio = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const sitio = urlSitio();
   const urlVerificacion = `${sitio}/seguimiento/${caso.token_seguimiento}`;
   let qr: string | null = null;
   try {
