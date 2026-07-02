@@ -1,7 +1,7 @@
 import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { emparejarMaterias } from "@/lib/groq/homologar";
 import { llamarGemini } from "@/lib/gemini/cliente";
-import { extraerUnidadesAcademicas } from "@/lib/extraccion";
+import { extraerYNormalizar, type UnidadAcademicaNormalizada } from "@/lib/extraccion";
 
 // Orquestador del pipeline de homologación (Fases 4 + 5). Corre como "el sistema" (cliente con la
 // secret key), porque escribe materia_origen y vínculos —tablas que el invitado solo puede leer— y
@@ -45,24 +45,33 @@ export async function procesarCaso(
     (asignaturasRaw as { id: string; nombre: string; creditos: number; semestre: number }[] | null) ??
     [];
 
-  // 2 y 3. Extraer unidades académicas del PDF usando la capa de extracción.
-  // La capa detecta automáticamente si es SENA (parser regex) o universitario (IA).
-  const resultado = await extraerUnidadesAcademicas(
+  // 2 y 3. Extraer y normalizar unidades académicas del PDF.
+  const resultado = await extraerYNormalizar(
     textoPdf,
     filaCaso.institucion_origen_nombre ?? "",
     bytesPdf,
   );
-  const materias = resultado.unidades;
+  const unidades = resultado.unidades;
   const esSena = resultado.tipoInstitucion === "sena";
 
+  // Guardar en BD: nombre limpio en materia_origen.nombre. La descripción enriquecida y
+  // los componentes se usan para el matching IA, no se guardan en el nombre.
+  const filasDB = unidades.map((u) => ({
+    caso_id: casoId,
+    nombre: u.nombre,
+    codigo: null,
+    creditos: u.creditos,
+    nota: u.nota,
+    semestre_origen: u.semestre,
+    tipo: u.tipo,
+    metadatos: u.metadatos,
+  }));
+
   let idsMateria: string[] = [];
-  if (materias.length > 0) {
-    const filas = materias.map((m) => ({ caso_id: casoId, ...m }));
-    // PostgREST devuelve las filas insertadas en el MISMO orden del arreglo de entrada, así que el
-    // índice de cada materia sigue valiendo para mapear los vínculos que devuelve la IA.
+  if (unidades.length > 0) {
     const { data: insertadas, error } = await supabase
       .from("materia_origen")
-      .insert(filas)
+      .insert(filasDB)
       .select("id");
     if (error) throw error;
     idsMateria = ((insertadas as { id: string }[] | null) ?? []).map((r) => r.id);
@@ -72,7 +81,11 @@ export async function procesarCaso(
   let semestreSugerido: number | null = null;
   if (idsMateria.length > 0 && asignaturas.length > 0) {
     const vinculos = await emparejarMaterias(
-      materias.map((m) => ({ nombre: m.nombre, creditos: m.creditos, nota: m.nota })),
+      unidades.map((u) => ({
+        nombre: u.descripcion,
+        creditos: u.creditos,
+        nota: u.nota,
+      })),
       asignaturas.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
       esSena,
     );
