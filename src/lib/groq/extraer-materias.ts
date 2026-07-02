@@ -3,13 +3,6 @@ import { getDocumentProxy, renderPageAsImage } from "unpdf";
 import { llamarGroq, llamarGroqVision, ErrorIANoDisponible } from "./cliente";
 import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
 
-// Fase 4 · Extracción de materias del PDF. Dos caminos, igual que la extracción del pensum:
-//   - extraerMateriasDeTexto(texto): certificados con capa de texto (lo normal).
-//   - extraerMateriasPorVision(bytes): certificados ESCANEADOS (sin texto): renderiza las páginas a
-//     imagen y se las pasa a un modelo de visión, que las "lee" como si fuera OCR.
-// Ambos comparten el parseo/saneado. Le pedimos a Groq una lista estructurada de materias y
-// sanitizamos cada campo: la IA puede devolver números como texto, campos faltantes, etc.
-
 export type MateriaExtraida = {
   nombre: string;
   codigo: string | null;
@@ -36,21 +29,6 @@ No inventes materias que no estén en el texto. Ignora encabezados, totales y pr
 Devuelve las materias ORDENADAS por semestre. Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"materias": [{"nombre": "...", "codigo": null, "creditos": null, "nota": null, "semestre_origen": 1}]}`;
 
-// Variante SENA para certificados escaneados (visión/OCR).
-const SISTEMA_VISION_SENA = `Eres un extractor de datos académicos especializado en certificados del SENA (Servicio Nacional de Aprendizaje) de Colombia. Recibes IMÁGENES de las páginas de una constancia de notas de formación titulada, donde los contenidos NO son materias tradicionales sino COMPETENCIAS con RESULTADOS DE APRENDIZAJE.
-
-Lee las imágenes y extrae CADA COMPETENCIA como una materia. Para cada una:
-- nombre: el nombre de la competencia LIMPIO (sin los resultados de aprendizaje). Normaliza mayúsculas a oración.
-- codigo: null.
-- creditos: el número de horas (IH) de la competencia como entero.
-- nota: "Aprobado" si la evaluación es "A"; si es "D", "No aprobado".
-- semestre_origen: null (el SENA no tiene semestres).
-
-No inventes competencias. Ignora encabezados y firma.
-Responde ÚNICAMENTE un objeto JSON con esta forma:
-{"materias": [{"nombre": "...", "codigo": null, "creditos": 48, "nota": "Aprobado", "semestre_origen": null}]}`;
-
-// Variante para certificados ESCANEADOS: en vez de texto recibe imágenes de las páginas y las "lee".
 const SISTEMA_VISION = `Eres un extractor de datos académicos. Recibes una o varias IMÁGENES de las páginas de un certificado de notas o historial académico universitario, donde las materias suelen venir agrupadas por semestre o periodo académico.
 
 Lee las imágenes y extrae TODAS las materias que cursó el estudiante, ORGANIZADAS POR SEMESTRE. Para cada materia incluye:
@@ -64,9 +42,38 @@ No inventes materias que no aparezcan en las imágenes. Ignora encabezados, tota
 Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"materias": [{"nombre": "...", "codigo": null, "creditos": null, "nota": null, "semestre_origen": 1}]}`;
 
-// Tope de páginas a leer por visión. Procesamos UNA por request (el modelo admite máx 3 imágenes y
-// varias páginas grandes juntas revientan el límite de tokens/min), así que este número es cuántas
-// páginas recorremos, no cuántas van por llamada. 8 cubre de sobra un historial académico completo.
+// SENA: en vez de materias organizadas por semestre, el SENA estructura su formación por
+// COMPETENCIAS, cada una con RESULTADOS DE APRENDIZAJE (RA) e INTENSIDAD HORARIA (IH).
+// Extraemos CADA COMPETENCIA como UNA SOLA materia, con su nombre y todos los RAs en el
+// campo "nombre". El formato JSON es IDÉNTICO al universitario ({"materias": [...]})
+// para que el modelo no tenga que cambiar de estructura.
+const SISTEMA_SENA = `Eres un extractor de datos académicos especializado en certificados del SENA de Colombia. Recibes el TEXTO de una constancia de notas de formación titulada, donde los contenidos NO son materias sino COMPETENCIAS con RESULTADOS DE APRENDIZAJE (RA).
+
+Formato SENA: cada bloque tiene nombre de COMPETENCIA, "REGISTRO DE COMPETENCIAS EVALUADAS", "IH" (horas), evaluación (A = Aprobado) y "RESULTADOS DE APRENDIZAJE" con items numerados.
+
+Extrae CADA COMPETENCIA como UNA SOLA materia. Para cada una:
+- nombre: arma UN SOLO TEXTO que incluya el nombre de la competencia y todos sus RAs, con este formato: "Competencia:\\n<nombre>\\n\\nResultados de aprendizaje:\\n- <RA1>\\n- <RA2>\\n- <RA3>"
+- codigo: null
+- creditos: el número de horas (IH) como entero, SIN dividir
+- nota: "Aprobado"
+- semestre_origen: null
+
+No inventes competencias. Ignora encabezados y firma.
+Responde ÚNICAMENTE un objeto JSON con esta forma:
+{"materias": [{"nombre": "Competencia:\\nDesarrollar la solucion de software\\n\\nResultados de aprendizaje:\\n- Planear actividades\\n- Construir la base de datos", "codigo": null, "creditos": 1008, "nota": "Aprobado", "semestre_origen": null}]}`;
+
+const SISTEMA_VISION_SENA = `Eres un extractor de datos académicos especializado en certificados del SENA. Recibes IMÁGENES de una constancia con COMPETENCIAS y RESULTADOS DE APRENDIZAJE (RA).
+
+Lee las imágenes y extrae CADA COMPETENCIA como UNA SOLA materia. Para cada una:
+- nombre: arma UN SOLO TEXTO con la competencia y todos sus RAs: "Competencia:\\n<nombre>\\n\\nResultados de aprendizaje:\\n- <RA1>\\n- <RA2>..."
+- codigo: null
+- creditos: el número de horas (IH) como entero, SIN dividir
+- nota: "Aprobado"
+- semestre_origen: null
+
+Responde ÚNICAMENTE un objeto JSON con esta forma:
+{"materias": [{"nombre": "Competencia:\\nDesarrollar la solucion de software\\n\\nResultados de aprendizaje:\\n- Planear actividades\\n- Construir la base de datos", "codigo": null, "creditos": 1008, "nota": "Aprobado", "semestre_origen": null}]}`;
+
 const MAX_PAGINAS_VISION = 8;
 
 function aNumeroONull(valor: unknown): number | null {
@@ -75,10 +82,6 @@ function aNumeroONull(valor: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// creditos y semestre_origen son columnas smallint: solo aceptan enteros. Un valor decimal
-// (típico cuando la IA mete una nota "4.5" en el campo de créditos) rompería el INSERT con
-// "invalid input syntax for type smallint", así que lo descartamos (null) en vez de reventar el
-// pipeline entero y dejar el caso atascado en 'procesando'. Un "3.0" sigue valiendo (es entero).
 function aEnteroONull(valor: unknown): number | null {
   const n = aNumeroONull(valor);
   return n !== null && Number.isInteger(n) ? n : null;
@@ -90,7 +93,6 @@ function aTextoONull(valor: unknown): string | null {
   return s.length > 0 ? s : null;
 }
 
-// Parseo y saneado compartido por ambos caminos (texto y visión).
 function parsearMaterias(contenido: string | null): MateriaExtraida[] {
   if (!contenido) return [];
   try {
@@ -100,7 +102,7 @@ function parsearMaterias(contenido: string | null): MateriaExtraida[] {
       .map((cruda): MateriaExtraida | null => {
         const m = cruda as Record<string, unknown>;
         const nombre = aTextoONull(m.nombre);
-        if (!nombre) return null; // sin nombre no sirve
+        if (!nombre) return null;
         return {
           nombre,
           codigo: aTextoONull(m.codigo),
@@ -116,70 +118,77 @@ function parsearMaterias(contenido: string | null): MateriaExtraida[] {
   }
 }
 
-// Documento del SENA (Servicio Nacional de Aprendizaje): en vez de materias organizadas por semestre,
-// el SENA estructura su formación por COMPETENCIAS, cada una con RESULTADOS DE APRENDIZAJE e
-// INTENSIDAD HORARIA (IH). La evaluación es cualitativa (A = Aprobado). No hay semestres.
-// Detectamos por frases clave del membrete y la columna "REGISTRO DE COMPETENCIAS EVALUADAS".
-function esDocumentoSENA(texto: string): boolean {
-  return /SERVICIO NACIONAL DE APRENDIZAJE|REGISTRO DE COMPETENCIAS EVALUADAS/i.test(texto);
+// Intenta parsear JSON de una respuesta que puede venir con texto alrededor, markdown, etc.
+// A diferencia de parsearMaterias (que espera JSON limpio de json_mode), esta función es más
+// tolerante: busca el primer { y el último } e intenta parsear ese fragmento.
+function extraerJsonDeTexto(contenido: string | null): string | null {
+  if (!contenido) return null;
+  // Intento directo (el modelo pudo responder JSON limpio aunque no estuviera en json_mode).
+  try {
+    JSON.parse(contenido);
+    return contenido;
+  } catch { /* seguimos */ }
+  // Buscar bloque de código markdown: ```json ... ```
+  const md = contenido.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (md?.[1]) {
+    try {
+      JSON.parse(md[1]);
+      return md[1];
+    } catch { /* seguimos */ }
+  }
+  // Buscar el rango del primer { al último }.
+  const inicio = contenido.indexOf("{");
+  const fin = contenido.lastIndexOf("}");
+  if (inicio !== -1 && fin > inicio) {
+    const fragmento = contenido.slice(inicio, fin + 1);
+    try {
+      JSON.parse(fragmento);
+      return fragmento;
+    } catch { /* no hay JSON válido */ }
+  }
+  return null;
 }
 
-const SISTEMA_SENA = `Eres un extractor de datos académicos especializado en certificados del SENA (Servicio Nacional de Aprendizaje) de Colombia. Recibes el TEXTO de una constancia de notas de formación titulada, donde los contenidos NO son materias tradicionales sino COMPETENCIAS con RESULTADOS DE APRENDIZAJE.
-
-Formato típico SENA: cada bloque contiene:
-- Nombre de la COMPETENCIA (en mayúsculas o mixto, puede ocupar varias líneas).
-- Una línea con la nota numérica (ej. "4,5"), evaluación cualitativa ("A" = Aprobado), "REGISTRO DE COMPETENCIAS EVALUADAS", "EVAL", "IH" y un número (horas).
-- "RESULTADOS DE APRENDIZAJE" seguido de items numerados (01, 02, 03...) que describen lo que el estudiante aprendió.
-
-Extrae CADA COMPETENCIA como una materia. Para cada una:
-- nombre: el nombre de la competencia LIMPIO (sin los resultados de aprendizaje, sin las notas, sin "REGISTRO DE COMPETENCIAS..."). Normaliza mayúsculas a oración (primera letra mayúscula, resto minúscula) para facilitar el emparejamiento posterior.
-- codigo: null (el SENA no usa códigos de materia).
-- creditos: el número de horas (IH) de la competencia como entero (48, 144, etc.).
-- nota: "Aprobado" si la evaluación es "A"; si es "D", "No aprobado".
-- semestre_origen: null (el SENA no tiene semestres).
-
-No inventes competencias. Ignora encabezados, el membrete institucional y la firma final.
-Responde ÚNICAMENTE un objeto JSON con esta forma:
-{"materias": [{"nombre": "...", "codigo": null, "creditos": 48, "nota": "Aprobado", "semestre_origen": null}]}`;
-
-function parsearCompetenciasSENA(contenido: string | null): MateriaExtraida[] {
-  return parsearMaterias(contenido);
-}
-
-// Camino normal: certificado con capa de texto.
-export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtraida[]> {
-  const recorte = texto.slice(0, 12000); // suficiente para un historial completo; controla tokens
-
-  const esSena = esDocumentoSENA(recorte);
+export async function extraerMateriasDeTexto(
+  texto: string,
+  esSena = false,
+): Promise<MateriaExtraida[]> {
+  const recorte = texto.slice(0, 12000);
   const sistemaPrompt = esSena ? SISTEMA_SENA : SISTEMA;
+  // SENA: NO usamos JSON mode porque el texto del SENA (competencias, RAs, IH, formato tabular)
+  // es tan distinto al universitario que TODOS los modelos de Groq fallan el json_validate.
+  // En vez de eso, dejamos que el modelo responda libre y extraemos el JSON nosotros.
+  const jsonMode = !esSena;
 
-  const contenido =
+  const contenidoCrudo =
     (await llamarGroq(
       [
         { role: "system", content: sistemaPrompt },
         { role: "user", content: recorte },
       ],
-      { json: true },
+      { json: jsonMode },
     )) ??
     (await llamarGemini(
       [
         { role: "system", content: sistemaPrompt },
         { role: "user", content: recorte },
       ],
-      { json: true },
+      // Gemini también falla si forzamos json_mode con texto SENA; por eso mismo flag.
+      { json: jsonMode },
     ));
 
-  if (contenido === null) {
+  if (contenidoCrudo === null) {
     throw new ErrorIANoDisponible("No se pudieron extraer las materias del certificado (texto).");
   }
 
-  if (esSena) {
-    return parsearCompetenciasSENA(contenido);
+  const contenidoJson = esSena ? extraerJsonDeTexto(contenidoCrudo) : contenidoCrudo;
+  if (!contenidoJson) {
+    console.error("[groq] No se pudo extraer JSON de la respuesta SENA:", contenidoCrudo.slice(0, 500));
+    throw new ErrorIANoDisponible("No se pudieron extraer las materias del certificado (texto).");
   }
-  return parsearMaterias(contenido);
+  return parsearMaterias(contenidoJson);
 }
 
-// Quita materias repetidas (misma por nombre), por si dos páginas solapan contenido.
 function dedupePorNombre(lista: MateriaExtraida[]): MateriaExtraida[] {
   const vistas = new Set<string>();
   return lista.filter((m) => {
@@ -190,17 +199,16 @@ function dedupePorNombre(lista: MateriaExtraida[]): MateriaExtraida[] {
   });
 }
 
-// Camino para certificados ESCANEADOS (sin texto): renderiza cada página a imagen y la lee por visión
-// (OCR). Va UNA página por llamada —el modelo admite máx 3 imágenes y varias páginas grandes juntas
-// exceden el límite de tokens/min (413)— y fusiona lo de todas. Espejo de extraerAsignaturasPorVision.
-export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<MateriaExtraida[]> {
+export async function extraerMateriasPorVision(
+  bytes: Uint8Array,
+  esSena = false,
+): Promise<MateriaExtraida[]> {
   const pdf = await getDocumentProxy(bytes.slice());
   const paginas = Math.min(pdf.numPages, MAX_PAGINAS_VISION);
 
+  const promptVision = esSena ? SISTEMA_VISION_SENA : SISTEMA_VISION;
   const materias: MateriaExtraida[] = [];
   let huboFallo = false;
-  let esSena = false;
-  let primerTexto = "";
 
   for (let i = 1; i <= paginas; i++) {
     const url = await renderPageAsImage(bytes.slice(), i, {
@@ -210,25 +218,15 @@ export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<Mater
     });
     if (typeof url !== "string") continue;
 
-    const promptFinal =
-      esSena ? SISTEMA_VISION_SENA : SISTEMA_VISION;
-
     const contenido =
-      (await llamarGroqVision(promptFinal, [url], i - 1)) ??
-      (await llamarGeminiVision(promptFinal, [url], i - 1));
+      (await llamarGroqVision(promptVision, [url], i - 1)) ??
+      (await llamarGeminiVision(promptVision, [url], i - 1));
 
     if (contenido === null) {
       huboFallo = true;
       continue;
     }
-
-    const extraidas = parsearMaterias(contenido);
-    materias.push(...extraidas);
-
-    if (i === 1 && !esSena) {
-      primerTexto = extraidas.map((m) => m.nombre).join(" ");
-      esSena = esDocumentoSENA(primerTexto);
-    }
+    materias.push(...parsearMaterias(contenido));
   }
 
   if (materias.length === 0 && huboFallo) {

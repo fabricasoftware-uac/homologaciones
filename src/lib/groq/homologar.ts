@@ -23,18 +23,18 @@ export type VinculoSugerido = {
 const SIMILITUD_MINIMA = 55;
 
 const SISTEMA = `Eres un experto en homologación de asignaturas universitarias en Colombia. Recibes un JSON con:
-- materias_origen: las materias que el estudiante cursó en su universidad de origen (cada una con su índice "i").
+- materias_origen: las materias o competencias que el estudiante cursó en su institución de origen (cada una con su índice "i").
 - asignaturas_destino: las asignaturas del plan de estudios destino (cada una con su índice "j").
 
-Tu tarea: revisa CADA materia de origen y encuéntrale su asignatura destino equivalente. Sé GENEROSO y EXHAUSTIVO: el objetivo es homologar la mayor cantidad posible de materias, sin inventar equivalencias falsas.
+Tu tarea: revisa CADA materia/competencia de origen y encuéntrale su(s) asignatura(s) destino equivalente(s). Sé GENEROSO y EXHAUSTIVO: el objetivo es homologar la mayor cantidad posible, sin inventar equivalencias falsas.
 
 Reglas:
 - Si los nombres son IGUALES o casi iguales, es una equivalencia segura: emparéjalas con similitud 95-100. NUNCA dejes por fuera una materia cuyo nombre coincide.
 - Ignora diferencias de mayúsculas, tildes y numeración (I/II equivale a 1/2). Ejemplos de equivalencias: "Cálculo I" = "Cálculo Diferencial"; "Programación I" = "Introducción a la Programación" = "Fundamentos de Programación"; "Bases de Datos" = "Sistemas de Información"; "Inglés I" = "Lengua Extranjera I".
 - Empareja también por equivalencia temática o de contenido, no solo por texto exacto.
 - Asigna la similitud (0 a 100) según qué tan equivalentes son. Incluye los emparejamientos con similitud de 55 o más.
-- Una materia de origen homologa a lo sumo una asignatura destino, y cada asignatura destino se homologa con a lo sumo una materia de origen (elige el mejor par).
-- Para CADA emparejamiento incluye "razon": una justificación BREVE (máximo 12 palabras, en español) de por qué son equivalentes (p. ej. "ambas cubren cálculo diferencial e integral").
+- Una materia/competencia de origen PUEDE ser equivalente a VARIAS asignaturas destino si su contenido cubre los objetivos de aprendizaje de cada una. Pero cada asignatura destino se homologa con a lo sumo UNA materia/competencia de origen.
+- Para CADA emparejamiento incluye "razon": una justificación BREVE (máximo 15 palabras, en español) de por qué son equivalentes (p. ej. "ambas cubren cálculo diferencial e integral").
 
 Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"vinculos": [{"materia": 0, "asignatura": 0, "similitud": 0, "razon": ""}]}`;
@@ -42,6 +42,7 @@ Responde ÚNICAMENTE un objeto JSON con esta forma:
 export async function emparejarMaterias(
   origen: MateriaParaEmparejar[],
   destino: AsignaturaParaEmparejar[],
+  permitirMultiplesPorOrigen = false,
 ): Promise<VinculoSugerido[]> {
   if (origen.length === 0 || destino.length === 0) return [];
 
@@ -103,14 +104,16 @@ export async function emparejarMaterias(
       });
     }
 
-    // Asignación 1-a-1: recorremos de mayor a menor similitud y nos quedamos con el mejor par para
-    // cada materia y cada asignatura (sin repetir ninguna de las dos).
+    // Asignación: cada destino se empareja con UNA sola materia de origen (la de mayor similitud).
+    // Cuando permitirMultiplesPorOrigen es true (SENA), una misma competencia de origen PUEDE
+    // homologar VARIAS asignaturas del pensum destino (1:N en el lado origen).
     candidatos.sort((a, b) => b.similitud - a.similitud);
     const materiasUsadas = new Set<number>();
     const asignaturasUsadas = new Set<number>();
     const resultado: VinculoSugerido[] = [];
     for (const v of candidatos) {
-      if (materiasUsadas.has(v.materia) || asignaturasUsadas.has(v.asignatura)) continue;
+      if (asignaturasUsadas.has(v.asignatura)) continue;
+      if (!permitirMultiplesPorOrigen && materiasUsadas.has(v.materia)) continue;
       materiasUsadas.add(v.materia);
       asignaturasUsadas.add(v.asignatura);
       resultado.push(v);

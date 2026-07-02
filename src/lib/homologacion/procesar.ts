@@ -26,16 +26,19 @@ export async function procesarCaso(
 ): Promise<void> {
   const supabase = crearClienteServicio();
 
-  // 1. Pensum destino del caso.
+  // 1. Datos del caso: pensum destino y si viene del SENA (lo detectamos del nombre de la
+  // institución, que el estudiante seleccionó en el formulario).
   const { data: caso, error: errorCaso } = await supabase
     .from("caso")
-    .select("pensum_destino_id")
+    .select("pensum_destino_id, institucion_origen_nombre")
     .eq("id", casoId)
     .single();
   if (errorCaso || !caso) {
     throw new Error(`No se encontró el caso ${casoId}: ${errorCaso?.message ?? "sin datos"}`);
   }
-  const pensumDestinoId = (caso as { pensum_destino_id: string }).pensum_destino_id;
+  const filaCaso = caso as { pensum_destino_id: string; institucion_origen_nombre: string | null };
+  const pensumDestinoId = filaCaso.pensum_destino_id;
+  const esSena = /sena/i.test(filaCaso.institucion_origen_nombre ?? "");
 
   // Asignaturas del pensum destino, ordenadas por semestre (el orden fija el índice que ve la IA).
   const { data: asignaturasRaw } = await supabase
@@ -53,9 +56,9 @@ export async function procesarCaso(
   // (lo maneja quien invoca, para avisarle al usuario).
   const materias =
     textoPdf.trim().length >= MIN_TEXTO_LEGIBLE
-      ? await extraerMateriasDeTexto(textoPdf)
+      ? await extraerMateriasDeTexto(textoPdf, esSena)
       : bytesPdf
-        ? await extraerMateriasPorVision(bytesPdf)
+        ? await extraerMateriasPorVision(bytesPdf, esSena)
         : [];
 
   let idsMateria: string[] = [];
@@ -77,6 +80,7 @@ export async function procesarCaso(
     const vinculos = await emparejarMaterias(
       materias.map((m) => ({ nombre: m.nombre, creditos: m.creditos, nota: m.nota })),
       asignaturas.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
+      esSena,
     );
 
     const filasVinculo = vinculos
