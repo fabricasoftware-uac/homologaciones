@@ -146,7 +146,7 @@ export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<Mater
     // configure el canvas de Node sin usar un buffer ya consumido.
     const url = await renderPageAsImage(bytes.slice(), i, {
       canvasImport: () => import("@napi-rs/canvas"),
-      scale: 2,
+      scale: 1.5, // suficiente para OCR y consume MENOS tokens que scale 2 (menos riesgo de 429)
       toDataURL: true,
     });
     if (typeof url !== "string") continue;

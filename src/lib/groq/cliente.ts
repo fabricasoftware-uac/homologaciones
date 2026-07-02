@@ -161,15 +161,16 @@ export async function llamarGroq(
   return null;
 }
 
-// Modelos multimodales (visión) para leer PDFs ESCANEADOS (sin capa de texto): se les pasa la imagen
-// de las páginas y devuelven el contenido. qwen/qwen3.6-27b es el único modelo con visión que sigue
-// vigente en Groq (los llama-4 quedaron decomisionados en 2026); hace OCR/lectura de imágenes y
-// soporta JSON mode.
+// Modelos multimodales (visión) para leer PDFs ESCANEADOS (sin capa de texto). CADENA con respaldo:
+// si el primero se queda sin cupo (429), pasamos al segundo, que tiene su PROPIO límite de tokens/min
+// —clave en el tier gratuito—. qwen/qwen3.6-27b es de razonamiento (usa reasoning_format); llama-4-scout
+// es multimodal no-razonador (verificado: responde visión+JSON) y sirve de red aunque Groq lo tenga en
+// deprecación. Ambos hacen OCR/lectura de imágenes y soportan JSON mode.
 //
-// OJO (verificado contra la API): este modelo admite MÁXIMO 3 imágenes por petición, y varias páginas
-// de alta resolución en una sola llamada agotan el límite de tokens/min (413). Por eso los llamadores
-// mandan UNA imagen por llamada y fusionan (ver extraerMateriasPorVision / extraerAsignaturasPorVision).
-const MODELOS_VISION = ["qwen/qwen3.6-27b"];
+// OJO (verificado contra la API): admiten MÁXIMO 3 imágenes por petición, y varias páginas de alta
+// resolución en una sola llamada agotan el límite de tokens/min (413). Por eso los llamadores mandan
+// UNA imagen por llamada y fusionan (ver extraerMateriasPorVision / extraerAsignaturasPorVision).
+const MODELOS_VISION = ["qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct"];
 
 // Llama a Groq con un prompt de texto + imágenes (data URLs). Devuelve el contenido del primer
 // modelo que responda, o null. Pide la respuesta en JSON.
@@ -188,19 +189,22 @@ export async function llamarGroqVision(prompt: string, imagenes: string[]): Prom
   for (const modelo of MODELOS_VISION) {
     for (let intento = 0; ; intento++) {
       try {
+        // reasoning_format ("hidden") SOLO aplica a modelos de razonamiento (qwen3.6, gpt-oss): hace
+        // que razonen por dentro y entreguen SOLO el JSON (sin bloque <think> que lo rompa). En otros
+        // (llama-4-scout) Groq rechazaría ese parámetro, así que solo lo mandamos cuando corresponde.
+        const cuerpo: Record<string, unknown> = {
+          model: modelo,
+          temperature: 0,
+          response_format: { type: "json_object" },
+          messages: [{ role: "user", content: contenido }],
+        };
+        if (modelo.includes("qwen") || modelo.includes("gpt-oss")) {
+          cuerpo.reasoning_format = "hidden";
+        }
         const respuesta = await fetch(GROQ_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: modelo,
-            temperature: 0,
-            // qwen3.6 es un modelo de razonamiento: sin esto emite un bloque <think>…</think> que rompe
-            // el JSON (y en modo estricto a veces devuelve vacío). "hidden" hace que razone por dentro y
-            // entregue SOLO el JSON final.
-            reasoning_format: "hidden",
-            response_format: { type: "json_object" },
-            messages: [{ role: "user", content: contenido }],
-          }),
+          body: JSON.stringify(cuerpo),
         });
         if (respuesta.ok) {
           const datos = (await respuesta.json()) as { choices?: { message?: { content?: string } }[] };
