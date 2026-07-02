@@ -1,6 +1,7 @@
 import { getDocumentProxy, renderPageAsImage } from "unpdf";
 
 import { llamarGroq, llamarGroqVision, ErrorIANoDisponible } from "./cliente";
+import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
 
 // Fase 4 · Extracción de materias del PDF. Dos caminos, igual que la extracción del pensum:
 //   - extraerMateriasDeTexto(texto): certificados con capa de texto (lo normal).
@@ -104,13 +105,21 @@ function parsearMaterias(contenido: string | null): MateriaExtraida[] {
 // Camino normal: certificado con capa de texto.
 export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtraida[]> {
   const recorte = texto.slice(0, 12000); // suficiente para un historial completo; controla tokens
-  const contenido = await llamarGroq(
-    [
-      { role: "system", content: SISTEMA },
-      { role: "user", content: recorte },
-    ],
-    { json: true },
-  );
+  const contenido =
+    (await llamarGroq(
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: recorte },
+      ],
+      { json: true },
+    )) ??
+    (await llamarGemini(
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: recorte },
+      ],
+      { json: true },
+    ));
   // null = ningún modelo respondió (servicio caído / sin cupo). NO es "no hay materias": es que no
   // pudimos ni preguntar. Lo señalamos para que el pipeline avise al usuario en vez de guardar un
   // caso vacío como si estuviera todo bien.
@@ -153,7 +162,9 @@ export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<Mater
 
     // Rotamos el modelo por página (round-robin): cada modelo de visión tiene su propio límite de
     // tokens/min, así que repartir las páginas entre ellos evita agotar uno solo con todo el PDF.
-    const contenido = await llamarGroqVision(SISTEMA_VISION, [url], i - 1);
+    const contenido =
+      (await llamarGroqVision(SISTEMA_VISION, [url], i - 1)) ??
+      (await llamarGeminiVision(SISTEMA_VISION, [url], i - 1));
     if (contenido === null) {
       huboFallo = true; // p. ej. rate-limit del tier: seguimos, pero lo tenemos en cuenta abajo
       continue;

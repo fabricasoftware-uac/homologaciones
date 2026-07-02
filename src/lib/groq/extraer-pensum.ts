@@ -1,6 +1,7 @@
 import { getDocumentProxy, renderPageAsImage } from "unpdf";
 
 import { llamarGroq, llamarGroqVision } from "./cliente";
+import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
 
 // Extracción del PLAN DE ESTUDIOS (pensum) de una carrera. Dos caminos:
 //   - extraerAsignaturasDePensum(texto): para PDFs con capa de texto (lo normal).
@@ -76,13 +77,21 @@ function parsearAsignaturas(contenido: string | null): AsignaturaExtraida[] {
 // Camino normal: PDF con texto.
 export async function extraerAsignaturasDePensum(texto: string): Promise<AsignaturaExtraida[]> {
   const recorte = texto.slice(0, 12000); // un plan completo cabe de sobra; margen para el TPM del tier
-  const contenido = await llamarGroq(
-    [
-      { role: "system", content: SISTEMA },
-      { role: "user", content: recorte },
-    ],
-    { json: true },
-  );
+  const contenido =
+    (await llamarGroq(
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: recorte },
+      ],
+      { json: true },
+    )) ??
+    (await llamarGemini(
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: recorte },
+      ],
+      { json: true },
+    ));
   return parsearAsignaturas(contenido);
 }
 
@@ -117,7 +126,9 @@ export async function extraerAsignaturasPorVision(bytes: Uint8Array): Promise<As
     if (typeof url !== "string") continue;
 
     // Round-robin de modelos por página: reparte el gasto de tokens entre los cupos de cada modelo.
-    const contenido = await llamarGroqVision(SISTEMA_VISION, [url], i - 1);
+    const contenido =
+      (await llamarGroqVision(SISTEMA_VISION, [url], i - 1)) ??
+      (await llamarGeminiVision(SISTEMA_VISION, [url], i - 1));
     if (contenido === null) continue; // esta página falló: seguimos con las demás (best-effort)
     asignaturas.push(...parsearAsignaturas(contenido));
   }

@@ -1,6 +1,7 @@
 import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { extraerMateriasDeTexto, extraerMateriasPorVision } from "@/lib/groq/extraer-materias";
 import { emparejarMaterias } from "@/lib/groq/homologar";
+import { llamarGemini } from "@/lib/gemini/cliente";
 
 // Mínimo de caracteres para dar el PDF por "con texto legible" (mismo criterio que el formulario). Si
 // el certificado no llega a esto, lo tratamos como escaneado y lo leemos por VISIÓN (OCR).
@@ -93,10 +94,12 @@ export async function procesarCaso(
       if (error) throw error;
     }
 
-    // Estimamos el semestre en código (no se lo dejamos a la IA): comparamos los créditos que el
-    // estudiante alcanzó a homologar contra la carga promedio por semestre del plan.
+    // Estimamos el semestre: usamos Gemini (gemini-2.5-flash-lite) como primera opción, y si no
+    // responde, caemos en el algoritmo determinístico de créditos.
     const idsHomologadas = new Set(filasVinculo.map((f) => f.asignatura_id));
-    semestreSugerido = estimarSemestre(asignaturas, idsHomologadas);
+    semestreSugerido =
+      (await estimarSemestreConGemini(asignaturas, idsHomologadas)) ??
+      estimarSemestre(asignaturas, idsHomologadas);
   }
 
   // 6. Caso listo para revisión.
@@ -105,6 +108,71 @@ export async function procesarCaso(
     .update({ estado: "en_revision", semestre_sugerido: semestreSugerido })
     .eq("id", casoId);
   if (errorUpdate) throw errorUpdate;
+}
+
+// Usa Gemini para estimar en qué semestre quedaría el estudiante. Le pasa la lista completa de
+// asignaturas del pensum (organizadas por semestre) y cuáles homologó, y le pide que razone cuál
+// sería el primer semestre que todavía le quedaría por cursar. Si Gemini no responde o devuelve un
+// valor inválido, devuelve null para que el pipeline caiga en el algoritmo determinístico.
+async function estimarSemestreConGemini(
+  asignaturas: { id: string; nombre: string; creditos: number; semestre: number }[],
+  homologadas: Set<string>,
+): Promise<number | null> {
+  const numSemestres = asignaturas.reduce((max, a) => Math.max(max, a.semestre), 0);
+  if (numSemestres === 0) return null;
+
+  const porSemestre = new Map<number, { total: number; homologadas: string[]; noHomologadas: string[] }>();
+  for (const a of asignaturas) {
+    const agrupado = porSemestre.get(a.semestre) ?? { total: 0, homologadas: [], noHomologadas: [] };
+    agrupado.total += a.creditos;
+    if (homologadas.has(a.id)) {
+      agrupado.homologadas.push(`${a.nombre} (${a.creditos} cr)`);
+    } else {
+      agrupado.noHomologadas.push(`${a.nombre} (${a.creditos} cr)`);
+    }
+    porSemestre.set(a.semestre, agrupado);
+  }
+
+  const resumen: string[] = [];
+  for (let sem = 1; sem <= numSemestres; sem++) {
+    const d = porSemestre.get(sem);
+    if (!d) continue;
+    resumen.push(
+      `Semestre ${sem} (${d.total} cr totales):\n  Homologadas: ${d.homologadas.join(", ") || "ninguna"}\n  NO homologadas: ${d.noHomologadas.join(", ") || "ninguna"}`,
+    );
+  }
+  const texto = resumen.join("\n\n");
+
+  const sistema = `Eres un asesor académico experto en homologaciones universitarias en Colombia. Recibes un resumen del plan de estudios organizado por semestre, indicando qué asignaturas homologó el estudiante y cuáles NO. Tu tarea: estimar en qué semestre quedaría el estudiante. Reglas:
+- El estudiante "se salta" un semestre solo si homologó TODAS o CASI TODAS las asignaturas de ese semestre (y los anteriores).
+- Si homologó la mayoría pero le faltan 1 o 2 asignaturas clave de un semestre, normalmente NO se salta ese semestre completo.
+- El resultado es el PRIMER semestre que todavía le quedaría por cursar.
+- Responde ÚNICAMENTE un objeto JSON con esta forma: {"semestre": 1, "razon": "explicación breve en español"}`;
+
+  const contenido = await llamarGemini(
+    [
+      { role: "system", content: sistema },
+      { role: "user", content: texto },
+    ],
+    { json: true, temperatura: 0, modelos: ["gemini-2.5-flash-lite"] },
+  );
+
+  if (!contenido) return null;
+
+  try {
+    const parsed = JSON.parse(contenido) as { semestre?: unknown; razon?: string };
+    const semestre = Number(parsed.semestre);
+    if (Number.isInteger(semestre) && semestre >= 1 && semestre <= numSemestres) {
+      const razon = typeof parsed.razon === "string" ? parsed.razon.trim() : "";
+      console.log(`[gemini] Semestre estimado: ${semestre}${razon ? ` (${razon})` : ""}`);
+      return semestre;
+    }
+    console.warn("[gemini] Semestre estimado inválido:", contenido);
+  } catch {
+    console.warn("[gemini] Semestre estimado: respuesta no era JSON válido:", contenido);
+  }
+
+  return null;
 }
 
 // Estima en qué semestre quedaría el estudiante a partir de los créditos que homologó. Recorre el
