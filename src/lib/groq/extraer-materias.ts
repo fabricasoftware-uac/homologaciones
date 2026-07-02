@@ -49,8 +49,10 @@ No inventes materias que no aparezcan en las imágenes. Ignora encabezados, tota
 Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"materias": [{"nombre": "...", "codigo": null, "creditos": null, "nota": null, "semestre_origen": 1}]}`;
 
-// Groq admite como máximo 5 imágenes por petición; cubrimos las primeras páginas del certificado.
-const MAX_PAGINAS_VISION = 5;
+// Tope de páginas a leer por visión. Procesamos UNA por request (el modelo admite máx 3 imágenes y
+// varias páginas grandes juntas revientan el límite de tokens/min), así que este número es cuántas
+// páginas recorremos, no cuántas van por llamada. 8 cubre de sobra un historial académico completo.
+const MAX_PAGINAS_VISION = 8;
 
 function aNumeroONull(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === "") return null;
@@ -118,15 +120,27 @@ export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtr
   return parsearMaterias(contenido);
 }
 
-// Camino para certificados ESCANEADOS (sin texto): renderiza hasta MAX_PAGINAS_VISION páginas a
-// imagen PNG y se las pasa a un modelo de visión para que las lea (OCR). Espejo de
-// extraerAsignaturasPorVision del pensum.
+// Quita materias repetidas (misma por nombre), por si dos páginas solapan contenido.
+function dedupePorNombre(lista: MateriaExtraida[]): MateriaExtraida[] {
+  const vistas = new Set<string>();
+  return lista.filter((m) => {
+    const clave = m.nombre.toLowerCase().trim();
+    if (vistas.has(clave)) return false;
+    vistas.add(clave);
+    return true;
+  });
+}
+
+// Camino para certificados ESCANEADOS (sin texto): renderiza cada página a imagen y la lee por visión
+// (OCR). Va UNA página por llamada —el modelo admite máx 3 imágenes y varias páginas grandes juntas
+// exceden el límite de tokens/min (413)— y fusiona lo de todas. Espejo de extraerAsignaturasPorVision.
 export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<MateriaExtraida[]> {
   // numPages desde una COPIA (las operaciones de pdf.js pueden "consumir"/desligar el buffer).
   const pdf = await getDocumentProxy(bytes.slice());
   const paginas = Math.min(pdf.numPages, MAX_PAGINAS_VISION);
 
-  const imagenes: string[] = [];
+  const materias: MateriaExtraida[] = [];
+  let algunaRespuesta = false;
   for (let i = 1; i <= paginas; i++) {
     // A renderPageAsImage se le pasan los BYTES (no el proxy) y una copia por página, para que unpdf
     // configure el canvas de Node sin usar un buffer ya consumido.
@@ -135,13 +149,18 @@ export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<Mater
       scale: 2,
       toDataURL: true,
     });
-    if (typeof url === "string") imagenes.push(url);
-  }
-  if (imagenes.length === 0) return [];
+    if (typeof url !== "string") continue;
 
-  const contenido = await llamarGroqVision(SISTEMA_VISION, imagenes);
-  if (contenido === null) {
+    const contenido = await llamarGroqVision(SISTEMA_VISION, [url]);
+    if (contenido === null) continue; // esta página falló (rate-limit/caída): seguimos con las demás
+    algunaRespuesta = true;
+    materias.push(...parsearMaterias(contenido));
+  }
+
+  // Si NINGUNA página logró respuesta, el servicio está caído o sin cupo: lo señalamos para que el
+  // pipeline avise al usuario (en vez de guardar un caso vacío como si todo hubiera ido bien).
+  if (!algunaRespuesta) {
     throw new ErrorIANoDisponible("No se pudo leer el certificado escaneado (visión).");
   }
-  return parsearMaterias(contenido);
+  return dedupePorNombre(materias);
 }

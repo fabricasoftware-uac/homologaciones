@@ -30,7 +30,10 @@ Lee las imágenes y extrae TODAS las asignaturas del plan. Para cada una: nombre
 
 No inventes asignaturas. Ignora encabezados, totales y notas al pie. ${FORMA}`;
 
-const MAX_PAGINAS_VISION = 4;
+// Cuántas páginas recorremos por visión. Va UNA página por request (el modelo admite máx 3 imágenes y
+// varias páginas grandes juntas exceden el límite de tokens/min), así que esto no es imágenes-por-
+// llamada sino páginas totales. 8 cubre de sobra un plan de estudios.
+const MAX_PAGINAS_VISION = 8;
 
 function aEnteroPositivoONull(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === "") return null;
@@ -83,14 +86,26 @@ export async function extraerAsignaturasDePensum(texto: string): Promise<Asignat
   return parsearAsignaturas(contenido);
 }
 
-// Camino para PDFs escaneados (sin texto): renderiza hasta MAX_PAGINAS_VISION páginas a imagen PNG y
-// se las pasa a un modelo de visión para que las lea.
+// Quita asignaturas repetidas (mismo nombre + semestre), por si dos páginas solapan contenido.
+function dedupeAsignaturas(lista: AsignaturaExtraida[]): AsignaturaExtraida[] {
+  const vistas = new Set<string>();
+  return lista.filter((a) => {
+    const clave = `${a.nombre.toLowerCase().trim()}|${a.semestre}`;
+    if (vistas.has(clave)) return false;
+    vistas.add(clave);
+    return true;
+  });
+}
+
+// Camino para PDFs escaneados (sin texto): renderiza cada página a imagen y la lee por visión. Va UNA
+// página por llamada —el modelo admite máx 3 imágenes y varias páginas grandes juntas exceden el
+// límite de tokens/min (413)— y fusiona lo de todas.
 export async function extraerAsignaturasPorVision(bytes: Uint8Array): Promise<AsignaturaExtraida[]> {
   // numPages desde una COPIA (las operaciones de pdf.js pueden "consumir"/desligar el buffer).
   const pdf = await getDocumentProxy(bytes.slice());
   const paginas = Math.min(pdf.numPages, MAX_PAGINAS_VISION);
 
-  const imagenes: string[] = [];
+  const asignaturas: AsignaturaExtraida[] = [];
   for (let i = 1; i <= paginas; i++) {
     // Importante: a renderPageAsImage se le pasan los BYTES (no el proxy) para que unpdf configure el
     // canvas de Node; y una copia por página para no usar un buffer ya consumido.
@@ -99,10 +114,11 @@ export async function extraerAsignaturasPorVision(bytes: Uint8Array): Promise<As
       scale: 2,
       toDataURL: true,
     });
-    if (typeof url === "string") imagenes.push(url);
-  }
-  if (imagenes.length === 0) return [];
+    if (typeof url !== "string") continue;
 
-  const contenido = await llamarGroqVision(SISTEMA_VISION, imagenes);
-  return parsearAsignaturas(contenido);
+    const contenido = await llamarGroqVision(SISTEMA_VISION, [url]);
+    if (contenido === null) continue; // esta página falló: seguimos con las demás (best-effort)
+    asignaturas.push(...parsearAsignaturas(contenido));
+  }
+  return dedupeAsignaturas(asignaturas);
 }

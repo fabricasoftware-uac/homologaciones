@@ -114,9 +114,13 @@ export async function llamarGroq(
 }
 
 // Modelos multimodales (visión) para leer PDFs ESCANEADOS (sin capa de texto): se les pasa la imagen
-// de las páginas y devuelven el contenido. Cadena con fallback, igual que arriba. qwen/qwen3.6-27b es
-// el único modelo con visión que sigue vigente en Groq (los llama-4 quedaron decomisionados en 2026);
-// hace OCR/lectura de imágenes y soporta JSON mode.
+// de las páginas y devuelven el contenido. qwen/qwen3.6-27b es el único modelo con visión que sigue
+// vigente en Groq (los llama-4 quedaron decomisionados en 2026); hace OCR/lectura de imágenes y
+// soporta JSON mode.
+//
+// OJO (verificado contra la API): este modelo admite MÁXIMO 3 imágenes por petición, y varias páginas
+// de alta resolución en una sola llamada agotan el límite de tokens/min (413). Por eso los llamadores
+// mandan UNA imagen por llamada y fusionan (ver extraerMateriasPorVision / extraerAsignaturasPorVision).
 const MODELOS_VISION = ["qwen/qwen3.6-27b"];
 
 // Llama a Groq con un prompt de texto + imágenes (data URLs). Devuelve el contenido del primer
@@ -141,6 +145,10 @@ export async function llamarGroqVision(prompt: string, imagenes: string[]): Prom
         body: JSON.stringify({
           model: modelo,
           temperature: 0,
+          // qwen3.6 es un modelo de razonamiento: sin esto emite un bloque <think>…</think> que rompe
+          // el JSON (y en modo estricto a veces devuelve vacío). "hidden" hace que razone por dentro y
+          // entregue SOLO el JSON final.
+          reasoning_format: "hidden",
           response_format: { type: "json_object" },
           messages: [{ role: "user", content: contenido }],
         }),
