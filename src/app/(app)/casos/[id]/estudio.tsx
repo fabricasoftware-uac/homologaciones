@@ -80,9 +80,9 @@ type Props = {
 // Color del badge de similitud: por debajo de 85% conviene que el admin lo revise con lupa (la IA
 // puede haberse equivocado, p. ej. relacionar "Desarrollo" con "Inglés").
 function colorSimilitud(similitud: number): string {
-  if (similitud >= 85) return "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30";
-  if (similitud >= 70) return "text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-500/10 border-violet-200 dark:border-violet-500/30";
-  return "text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30";
+  if (similitud >= 85) return "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40";
+  if (similitud >= 70) return "text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/15 border-amber-300 dark:border-amber-500/40";
+  return "text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/15 border-rose-300 dark:border-rose-500/40";
 }
 
 // Umbral fijo de confianza para la confirmación en lote (las sugerencias "seguras" de la IA).
@@ -710,23 +710,25 @@ function Tarjeta({
   tipo: "origen" | "destino";
   onClick?: () => void;
 }) {
-  // El FONDO/BORDE lo fija el ESTADO del vínculo (la "relación"): violeta = sugerencia de la IA
-  // (pendiente), verde = aprobada. Lo mantenemos SIEMPRE visible —también al seleccionar— para no
-  // perder el color de la relación. Subimos un poco las opacidades del modo oscuro para que contraste.
+  // El color de la RELACIÓN va en una BARRA LATERAL SÓLIDA (border-l-4), no en un tinte translúcido:
+  // un acento sólido se distingue sobre CUALQUIER tema (claro u oscuro, azulado o neutro). Ámbar =
+  // sugerencia de la IA (pendiente), verde = aprobada. Los demás bordes quedan neutros. Antes usábamos
+  // violeta + tinte al 15-20%, que se perdía en los temas oscuros azulados/índigo.
   const claseEstado =
     estado === "aprobado"
-      ? "border-emerald-300 dark:border-emerald-500/60 bg-emerald-50 dark:bg-emerald-500/20"
+      ? "border-slate-200 dark:border-slate-800 border-l-4 border-l-emerald-500 bg-emerald-50 dark:bg-emerald-500/15"
       : estado === "pendiente"
-        ? "border-violet-300 dark:border-violet-500/60 bg-violet-50 dark:bg-violet-500/20"
+        ? "border-slate-200 dark:border-slate-800 border-l-4 border-l-amber-500 bg-amber-50 dark:bg-amber-500/15"
         : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-sm";
 
-  // El ANILLO marca la SELECCIÓN / RESALTADO por ENCIMA del color de estado (no lo tapa): anillo
-  // sólido de marca para la tarjeta seleccionada y uno visible para su relacionada en la otra columna.
-  // Al ser un anillo sólido (no un tinte de fondo translúcido), se ve bien en claro y en oscuro.
+  // La SELECCIÓN / RELACIÓN se marca con un anillo AZUL CIELO (sky): un color distinto de los de
+  // estado (ámbar/verde) y del color de marca, con buen contraste en todos los temas —los oscuros son
+  // casi negros, así que el cian brillante resalta—. La tarjeta seleccionada lleva anillo sólido +
+  // sombra; su pareja en la otra columna, el mismo anillo más tenue, para leer la conexión de un vistazo.
   const claseSeleccion = seleccionada
-    ? "ring-2 ring-marca border-marca shadow-md shadow-marca/20"
+    ? "ring-2 ring-sky-500 dark:ring-sky-400 shadow-lg shadow-sky-500/20"
     : resaltada
-      ? "ring-2 ring-marca/70"
+      ? "ring-2 ring-sky-500/60 dark:ring-sky-400/60"
       : "";
 
   return (
@@ -787,7 +789,7 @@ function Tarjeta({
           </span>
         )}
         {seleccionada && (
-          <span className="ml-auto flex items-center gap-1 text-marca">
+          <span className="ml-auto flex items-center gap-1 text-sky-600 dark:text-sky-400">
             <Check className="w-3.5 h-3.5" strokeWidth={3} /> Seleccionada
           </span>
         )}
@@ -808,7 +810,7 @@ function Tarjeta({
             "mt-2.5 pt-2.5 border-t flex items-center gap-1.5 text-[11px] font-semibold",
             vinculadoCon.aprobado
               ? "text-emerald-700 dark:text-emerald-300 border-emerald-100 dark:border-emerald-500/20"
-              : "text-violet-700 dark:text-violet-300 border-violet-100 dark:border-violet-500/20",
+              : "text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-500/20",
           )}
         >
           {tipo === "origen" ? (
