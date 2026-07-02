@@ -84,7 +84,9 @@ export function ResumenCaso({
           <div
             className={clsx(
               "w-16 h-16 rounded-full flex items-center justify-center mx-auto",
-              aprobado ? "bg-green-100 dark:bg-green-500/15 text-green-600 dark:text-green-400" : "bg-red-100 dark:bg-red-500/15 text-red-600 dark:text-red-400",
+              aprobado
+                ? "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                : "bg-rose-100 dark:bg-rose-500/15 text-rose-600 dark:text-rose-400",
             )}
           >
             {aprobado ? <CheckCircle2 className="w-8 h-8" /> : <XCircle className="w-8 h-8" />}
@@ -98,7 +100,7 @@ export function ResumenCaso({
             <span>{caso.carrera}</span>
           </p>
           {aprobado && caso.semestre != null && (
-            <div className="mt-5 inline-flex items-center gap-2 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 text-green-800 dark:text-green-200 px-5 py-3 rounded-xl">
+            <div className="mt-5 inline-flex items-center gap-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-200 px-5 py-3 rounded-xl">
               <GraduationCap className="w-5 h-5" />
               <span className="font-semibold">Queda en el semestre {caso.semestre}</span>
             </div>
@@ -151,11 +153,14 @@ export function ResumenCaso({
                 onChange={(e) => setNota(e.target.value)}
                 rows={3}
                 placeholder="Escribe una nota para el estudiante (opcional)…"
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none text-sm"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none resize-none text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+              {/* "Interna" se señala con el punto ámbar del label, no tiñendo el input entero: el
+                  campo queda neutro como los demás (el tinte ámbar completo se veía mal en oscuro). */}
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                 Nota interna{" "}
                 <span className="font-normal text-slate-400 dark:text-slate-500">(no la ve el estudiante)</span>
               </label>
@@ -164,15 +169,17 @@ export function ResumenCaso({
                 onChange={(e) => setNotaInterna(e.target.value)}
                 rows={2}
                 placeholder="Anotaciones internas del equipo (opcional)…"
-                className="w-full px-3 py-2 bg-amber-50/60 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none resize-none text-sm text-slate-700 dark:text-amber-50 placeholder:text-amber-700/40 dark:placeholder:text-amber-200/30"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none resize-none text-sm"
               />
             </div>
             <div className="flex justify-end">
+              {/* Botón con borde (mejor affordance que un enlace suelto) y hover válido en ambos
+                  modos: el hover:text-blue-900 anterior desaparecía sobre fondo oscuro. */}
               <button
                 type="button"
                 onClick={guardar}
                 disabled={pendiente}
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-700 dark:text-blue-300 hover:text-blue-900 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-500/30 bg-sky-50 dark:bg-sky-500/10 rounded-lg px-3 py-1.5 hover:bg-sky-100 dark:hover:bg-sky-500/20 disabled:opacity-50 transition-colors"
               >
                 <Save className="w-4 h-4" /> Guardar notas
               </button>
@@ -184,7 +191,7 @@ export function ResumenCaso({
         {aprobado && (
           <a
             href={`/casos/${caso.id}/acta`}
-            className="flex items-center justify-center gap-2 w-full bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white font-bold px-4 py-3 rounded-xl shadow-sm shadow-green-600/20 dark:shadow-none transition-colors"
+            className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-3 rounded-xl shadow-sm shadow-emerald-600/20 dark:shadow-none transition-colors"
           >
             <Download className="w-5 h-5" /> Descargar acta de homologación (PDF)
           </a>

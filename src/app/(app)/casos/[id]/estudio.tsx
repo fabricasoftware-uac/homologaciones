@@ -354,7 +354,7 @@ export function EstudioHomologacion({
                     min={1}
                     value={semestre}
                     onChange={(e) => setSemestre(e.target.value)}
-                    className="w-32 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-32 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none"
                   />
                 </div>
                 <div>
@@ -374,11 +374,15 @@ export function EstudioHomologacion({
                     onChange={(e) => setNota(e.target.value)}
                     rows={3}
                     placeholder="Ej.: Debes presentar los programas de las materias homologadas en admisiones."
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none resize-none text-sm"
                   />
                 </div>
                 <div>
-                  <label htmlFor="nota-interna" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                  {/* "Interna" se señala con el punto ámbar del label, no tiñendo el input entero:
+                      el campo queda neutro como los demás (el tinte ámbar completo se veía mal,
+                      sobre todo en oscuro). */}
+                  <label htmlFor="nota-interna" className="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                     Nota interna{" "}
                     <span className="text-slate-400 dark:text-slate-500 font-normal">(no la ve el estudiante)</span>
                   </label>
@@ -388,22 +392,26 @@ export function EstudioHomologacion({
                     onChange={(e) => setNotaInterna(e.target.value)}
                     rows={2}
                     placeholder="Ej.: Falta confirmar créditos de Cálculo II con el coordinador."
-                    className="w-full px-3 py-2 bg-amber-50/60 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none resize-none text-sm text-slate-700 dark:text-amber-50 placeholder:text-amber-700/40 dark:placeholder:text-amber-200/30"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none resize-none text-sm"
                   />
                 </div>
               </div>
               <DialogFooter>
+                {/* Veredicto con la paleta semántica del estudio: rechazar = rose (outline, acción
+                    secundaria), aprobar = emerald sólido (acción principal). Antes: rojo con hover
+                    claro sin variante dark (se "encendía" en modo oscuro) y aprobar en color de
+                    marca, que no comunicaba veredicto. */}
                 <button
                   onClick={() => hacerFinalizar("rechazado")}
                   disabled={pendiente}
-                  className="px-4 py-2 rounded-lg text-sm font-medium bg-white dark:bg-slate-900 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/30 hover:bg-red-50 disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-rose-600 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40 bg-transparent hover:bg-rose-50 dark:hover:bg-rose-500/10 disabled:opacity-50 transition-colors"
                 >
                   Rechazar caso
                 </button>
                 <button
                   onClick={() => hacerFinalizar("aprobado")}
                   disabled={pendiente}
-                  className="px-4 py-2 rounded-lg text-sm font-bold bg-marca text-marca-fg hover:bg-marca-hover dark:bg-marca-hover dark:hover:bg-marca disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm disabled:opacity-50 transition-colors"
                 >
                   Aprobar caso
                 </button>
