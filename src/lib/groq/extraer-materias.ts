@@ -151,7 +151,9 @@ export async function extraerMateriasPorVision(bytes: Uint8Array): Promise<Mater
     });
     if (typeof url !== "string") continue;
 
-    const contenido = await llamarGroqVision(SISTEMA_VISION, [url]);
+    // Rotamos el modelo por página (round-robin): cada modelo de visión tiene su propio límite de
+    // tokens/min, así que repartir las páginas entre ellos evita agotar uno solo con todo el PDF.
+    const contenido = await llamarGroqVision(SISTEMA_VISION, [url], i - 1);
     if (contenido === null) {
       huboFallo = true; // p. ej. rate-limit del tier: seguimos, pero lo tenemos en cuenta abajo
       continue;

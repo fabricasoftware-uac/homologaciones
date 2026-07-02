@@ -172,9 +172,24 @@ export async function llamarGroq(
 // UNA imagen por llamada y fusionan (ver extraerMateriasPorVision / extraerAsignaturasPorVision).
 const MODELOS_VISION = ["qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct"];
 
+// Las peticiones de visión son GRANDES (una imagen de página completa consume miles de tokens), así
+// que cuando Groq pide esperar tras un 429 suele ser cuestión de segundos, no de milisegundos. Aquí
+// vale la pena aguantar más que en texto: la alternativa es perder la página entera.
+const TOPE_ESPERA_VISION_MS = 12000;
+
 // Llama a Groq con un prompt de texto + imágenes (data URLs). Devuelve el contenido del primer
 // modelo que responda, o null. Pide la respuesta en JSON.
-export async function llamarGroqVision(prompt: string, imagenes: string[]): Promise<string | null> {
+//
+// `rotacion` reparte la carga entre los modelos de visión (round-robin): cada modelo tiene su PROPIO
+// límite de tokens/min, así que si quien llama procesa varias páginas y va rotando el modelo inicial
+// (página 1 -> qwen, página 2 -> scout, ...), ninguno carga con todas las páginas y el cupo rinde el
+// doble. Sin rotación, todas las páginas golpeaban primero al mismo modelo y lo agotaban antes de
+// llegar a la página importante (la de la tabla de materias).
+export async function llamarGroqVision(
+  prompt: string,
+  imagenes: string[],
+  rotacion = 0,
+): Promise<string | null> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     console.error("[groq] Falta GROQ_API_KEY en el entorno.");
@@ -186,7 +201,12 @@ export async function llamarGroqVision(prompt: string, imagenes: string[]): Prom
     ...imagenes.map((url) => ({ type: "image_url", image_url: { url } })),
   ];
 
-  for (const modelo of MODELOS_VISION) {
+  // Cadena rotada: empieza por el modelo que toca según la página, y el resto quedan de respaldo.
+  const cadena = MODELOS_VISION.map(
+    (_, i) => MODELOS_VISION[(i + rotacion) % MODELOS_VISION.length],
+  );
+
+  for (const modelo of cadena) {
     for (let intento = 0; ; intento++) {
       try {
         // reasoning_format ("hidden") SOLO aplica a modelos de razonamiento (qwen3.6, gpt-oss): hace
@@ -210,7 +230,9 @@ export async function llamarGroqVision(prompt: string, imagenes: string[]): Prom
           const datos = (await respuesta.json()) as { choices?: { message?: { content?: string } }[] };
           const c = datos.choices?.[0]?.message?.content;
           if (c) return c;
-          break; // respondió vacío: probamos el siguiente modelo
+          // Antes este camino no dejaba rastro y el fallo parecía "sin causa" en los logs.
+          console.warn(`[groq-vision] ${modelo} respondió vacío. Probando el siguiente...`);
+          break;
         }
 
         const detalle = await respuesta.text();
@@ -219,12 +241,14 @@ export async function llamarGroqVision(prompt: string, imagenes: string[]): Prom
           return null;
         }
 
-        // 429 con espera corta: esperamos y reintentamos el MISMO modelo (su cupo se libera pronto).
+        // 429: esperamos lo que pida Groq (en visión suelen ser SEGUNDOS, por el tamaño de las
+        // peticiones) y reintentamos el MISMO modelo. El tope de visión es más generoso que el de
+        // texto; la página se pierde si no aguantamos la espera.
         if (respuesta.status === 429 && intento < MAX_REINTENTOS_429) {
           const espera = esperaTrasRateLimit(respuesta, detalle);
-          if (espera <= TOPE_ESPERA_MS) {
+          if (espera <= TOPE_ESPERA_VISION_MS) {
             console.warn(`[groq-vision] ${modelo} rate-limited; reintento en ${espera}ms...`);
-            await dormir(espera + 150);
+            await dormir(espera + 250);
             continue;
           }
         }

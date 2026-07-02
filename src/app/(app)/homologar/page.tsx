@@ -5,6 +5,11 @@ import { EncabezadoPagina } from "@/components/encabezado";
 import { FormularioHomologacion } from "./formulario";
 import { OnboardingHomologar } from "./onboarding";
 
+// El envío corre el pipeline de IA (validar + extraer + emparejar, y OCR por visión si el PDF está
+// escaneado), que puede esperar varios segundos ante rate-limits de Groq. Sin esto, Vercel corta la
+// función a los ~10s por defecto y el caso queda a medias.
+export const maxDuration = 60;
+
 // Pantalla principal del estudiante: arma la solicitud de homologación. Cargamos en el servidor
 // las carreras destino activas para llenar el desplegable del formulario.
 export default async function PaginaHomologar() {

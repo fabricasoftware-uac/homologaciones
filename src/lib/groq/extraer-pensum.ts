@@ -116,7 +116,8 @@ export async function extraerAsignaturasPorVision(bytes: Uint8Array): Promise<As
     });
     if (typeof url !== "string") continue;
 
-    const contenido = await llamarGroqVision(SISTEMA_VISION, [url]);
+    // Round-robin de modelos por página: reparte el gasto de tokens entre los cupos de cada modelo.
+    const contenido = await llamarGroqVision(SISTEMA_VISION, [url], i - 1);
     if (contenido === null) continue; // esta página falló: seguimos con las demás (best-effort)
     asignaturas.push(...parsearAsignaturas(contenido));
   }

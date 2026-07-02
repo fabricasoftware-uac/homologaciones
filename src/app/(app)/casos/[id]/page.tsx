@@ -22,6 +22,10 @@ import {
 } from "./estudio";
 import { ResumenCaso } from "./resumen";
 
+// El botón "Reprocesar" corre el pipeline de IA completo (con esperas ante rate-limits de Groq y OCR
+// por visión si el certificado está escaneado). Sin esto, Vercel corta la función a los ~10s.
+export const maxDuration = 60;
+
 const ESTADO_CASO_UI: Record<EstadoCaso, { etiqueta: string; clases: string }> = {
   procesando: { etiqueta: "Procesando", clases: "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30" },
   en_revision: { etiqueta: "Por revisar", clases: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30" },

@@ -11,6 +11,10 @@ import { GestorPlanPdf } from "./gestor-plan";
 // Planes académicos (admin): tarjetas con las carreras de la Autónoma del Cauca, su pensum
 // (asignaturas por semestre) y la gestión del PDF del plan (subir / ver / reemplazar / eliminar).
 
+// Subir el pensum en PDF dispara la extracción con IA (y OCR por visión si está escaneado), que puede
+// esperar varios segundos ante rate-limits de Groq. Sin esto, Vercel corta la función a los ~10s.
+export const maxDuration = 60;
+
 type AsignaturaRef = { nombre: string; creditos: number; semestre: number };
 type PensumCard = {
   id: string;
