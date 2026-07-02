@@ -52,6 +52,16 @@ const MODELOS: string[] = [
   "qwen/qwen3.6-27b", // familia distinta (multimodal) como última red
 ];
 
+// Cadena LIGERA (empieza por el 20b, dejando el 120b libre). El límite de tokens/min de Groq es POR
+// MODELO, así que repartir el pipeline en modelos distintos evita saturar uno solo: la extracción
+// (la llamada clave) se queda con el 120b entero, mientras validación y emparejamiento corren en el
+// 20b. Cae a qwen y, en último caso, al 120b, si hiciera falta.
+export const MODELOS_LIGEROS: string[] = [
+  "openai/gpt-oss-20b",
+  "qwen/qwen3.6-27b",
+  "openai/gpt-oss-120b",
+];
+
 export type MensajeGroq = { role: "system" | "user" | "assistant"; content: string };
 
 export type OpcionesGroq = {

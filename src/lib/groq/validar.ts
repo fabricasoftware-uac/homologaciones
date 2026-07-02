@@ -1,4 +1,4 @@
-import { llamarGroq } from "./cliente";
+import { llamarGroq, MODELOS_LIGEROS } from "./cliente";
 
 // Validación de contenido del PDF con IA: ¿el archivo que subió la persona es de verdad un
 // documento académico (certificado de notas / historial / pensum) y no publicidad, contenido para
@@ -19,13 +19,15 @@ Responde ÚNICAMENTE un objeto JSON con esta forma exacta:
 {"valido": true|false, "motivo": "explicación breve en español neutro"}`;
 
 export async function validarDocumentoAcademico(texto: string): Promise<VeredictoDocumento> {
-  const recorte = texto.slice(0, 6000); // alcanza para clasificar y controla el gasto de tokens
+  const recorte = texto.slice(0, 3000); // basta para clasificar (académico vs spam); menos tokens
+  // Va en la cadena LIGERA (20b primero) para NO gastar el cupo del 120b, que reservamos para la
+  // extracción de materias. Así validar + extraer no compiten por el mismo límite de tokens/min.
   const contenido = await llamarGroq(
     [
       { role: "system", content: SISTEMA },
       { role: "user", content: recorte },
     ],
-    { json: true },
+    { json: true, modelos: MODELOS_LIGEROS },
   );
 
   if (!contenido) {

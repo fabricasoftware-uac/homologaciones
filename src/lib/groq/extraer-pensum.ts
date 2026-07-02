@@ -75,7 +75,7 @@ function parsearAsignaturas(contenido: string | null): AsignaturaExtraida[] {
 
 // Camino normal: PDF con texto.
 export async function extraerAsignaturasDePensum(texto: string): Promise<AsignaturaExtraida[]> {
-  const recorte = texto.slice(0, 16000); // un plan completo cabe holgado; controla tokens
+  const recorte = texto.slice(0, 12000); // un plan completo cabe de sobra; margen para el TPM del tier
   const contenido = await llamarGroq(
     [
       { role: "system", content: SISTEMA },

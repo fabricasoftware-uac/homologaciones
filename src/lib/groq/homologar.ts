@@ -1,4 +1,4 @@
-import { llamarGroq } from "./cliente";
+import { llamarGroq, MODELOS_LIGEROS } from "./cliente";
 
 // Fase 5 · Emparejamiento con IA.
 //
@@ -59,12 +59,14 @@ export async function emparejarMaterias(
     })),
   };
 
+  // Emparejamiento en la cadena LIGERA (20b primero): así no compite con la extracción por el cupo
+  // del 120b. Es una tarea de comparación por índices, que el 20b resuelve bien.
   const contenido = await llamarGroq(
     [
       { role: "system", content: SISTEMA },
       { role: "user", content: JSON.stringify(payload) },
     ],
-    { json: true },
+    { json: true, modelos: MODELOS_LIGEROS },
   );
   if (!contenido) return [];
 
