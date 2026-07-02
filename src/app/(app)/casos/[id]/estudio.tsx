@@ -710,15 +710,24 @@ function Tarjeta({
   tipo: "origen" | "destino";
   onClick?: () => void;
 }) {
-  const clases = seleccionada
-    ? "border-marca ring-2 ring-marca/25 bg-marca/[0.05]"
+  // El FONDO/BORDE lo fija el ESTADO del vínculo (la "relación"): violeta = sugerencia de la IA
+  // (pendiente), verde = aprobada. Lo mantenemos SIEMPRE visible —también al seleccionar— para no
+  // perder el color de la relación. Subimos un poco las opacidades del modo oscuro para que contraste.
+  const claseEstado =
+    estado === "aprobado"
+      ? "border-emerald-300 dark:border-emerald-500/60 bg-emerald-50 dark:bg-emerald-500/20"
+      : estado === "pendiente"
+        ? "border-violet-300 dark:border-violet-500/60 bg-violet-50 dark:bg-violet-500/20"
+        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-sm";
+
+  // El ANILLO marca la SELECCIÓN / RESALTADO por ENCIMA del color de estado (no lo tapa): anillo
+  // sólido de marca para la tarjeta seleccionada y uno visible para su relacionada en la otra columna.
+  // Al ser un anillo sólido (no un tinte de fondo translúcido), se ve bien en claro y en oscuro.
+  const claseSeleccion = seleccionada
+    ? "ring-2 ring-marca border-marca shadow-md shadow-marca/20"
     : resaltada
-      ? "border-marca/50 ring-2 ring-marca/10 bg-marca/[0.03]"
-      : estado === "aprobado"
-        ? "border-emerald-300 dark:border-emerald-500/40 bg-emerald-50/70 dark:bg-emerald-500/12"
-        : estado === "pendiente"
-          ? "border-violet-300 dark:border-violet-500/40 bg-violet-50/70 dark:bg-violet-500/12"
-          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 hover:shadow-sm";
+      ? "ring-2 ring-marca/70"
+      : "";
 
   return (
     <motion.div
@@ -731,7 +740,8 @@ function Tarjeta({
       whileTap={onClick ? { scale: 0.985 } : undefined}
       className={clsx(
         "scroll-mt-4 rounded-xl border p-3.5 transition-colors select-none",
-        clases,
+        claseEstado,
+        claseSeleccion,
         onClick && "cursor-pointer",
       )}
     >
