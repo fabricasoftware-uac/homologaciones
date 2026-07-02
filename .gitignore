@@ -11,5 +11,9 @@ next-env.d.ts
 .claude
 text.txt
 
+# Basura de macOS/Windows (no debe versionarse).
+.DS_Store
+Thumbs.db
+
 # Certificados/PDFs de estudiantes de ejemplo: contienen datos personales, no se versionan.
 docs/ejemplos/
