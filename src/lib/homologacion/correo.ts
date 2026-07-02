@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
 
+import { sitioUrl } from "@/lib/sitio";
+
 // Notificación por correo del resultado de una homologación. Arma el mensaje y lo envía. Lee el
 // contacto con el cliente de SERVICIO porque el correo del invitado no es visible con la RLS normal.
 //
@@ -49,8 +51,7 @@ export async function notificarVeredicto(
 
   // Enlace de seguimiento (sin sesión) para que el estudiante vuelva a su caso y, si fue aprobado,
   // descargue el acta. Usa la URL pública del sitio; en desarrollo cae a localhost.
-  const sitio = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  const enlaceSeguimiento = `${sitio}/seguimiento/${fila.token_seguimiento}`;
+  const enlaceSeguimiento = `${sitioUrl()}/seguimiento/${fila.token_seguimiento}`;
 
   const asunto = aprobado
     ? "Tu homologación fue aprobada"
@@ -89,8 +90,7 @@ export async function notificarRecepcion(
 
   const nombre = fila.solicitante_nombre?.trim() || "estudiante";
   const carrera = fila.pensum?.carrera ?? "el programa solicitado";
-  const sitio = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  const enlace = `${sitio}/seguimiento/${fila.token_seguimiento}`;
+  const enlace = `${sitioUrl()}/seguimiento/${fila.token_seguimiento}`;
 
   const asunto = "Recibimos tu solicitud de homologación";
   const html = construirHtmlRecepcion({ nombre, carrera, enlace });

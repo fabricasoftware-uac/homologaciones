@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import QRCode from "qrcode";
 
 import { obtenerConfiguracion } from "@/lib/marca/configuracion";
+import { sitioUrl } from "@/lib/sitio";
 import type { EstadoCaso } from "@/types";
 import { generarActaPdf, type DatosActa, type FilaActa } from "./documento";
 
@@ -77,8 +78,7 @@ export async function responderActa(
 
   // QR de verificación: apunta a la página pública de seguimiento del caso (por token). Un tercero
   // escanea el acta y confirma su autenticidad. Best-effort: si falla, el acta sale sin QR.
-  const sitio = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  const urlVerificacion = `${sitio}/seguimiento/${caso.token_seguimiento}`;
+  const urlVerificacion = `${sitioUrl()}/seguimiento/${caso.token_seguimiento}`;
   let qr: string | null = null;
   try {
     qr = await QRCode.toDataURL(urlVerificacion, { margin: 1, width: 240 });

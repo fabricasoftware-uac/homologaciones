@@ -5,7 +5,6 @@ import {
   IconCircleCheck as CheckCircle2,
   IconArrowRight as ArrowRight,
   IconClipboardList as ClipboardList,
-  IconLogin2 as Login,
 } from "@tabler/icons-react";
 
 import type { Configuracion } from "@/lib/marca/configuracion";
@@ -81,12 +80,8 @@ export function Landing({
                 <ClipboardList className="w-4 h-4" /> Mis homologaciones
               </Link>
             )}
-            <Link
-              href="/ingresar"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white px-3 py-2"
-            >
-              <Login className="w-4 h-4" /> Ingresar
-            </Link>
+            {/* El acceso de administradores/asesores NO se muestra en la landing pública: se entra por
+                la URL directa /ingresar. Así el estudiante solo ve el flujo de homologación. */}
             <BotonTema className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white p-2" />
           </div>
         </div>

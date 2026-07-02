@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
+import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { sileo } from "sileo";
 import {
@@ -82,6 +83,7 @@ export function FormularioHomologacion({ pensums }: { pensums: PensumOpcion[] })
     crearHomologacion,
     null,
   );
+  const router = useRouter();
   const inputArchivo = useRef<HTMLInputElement>(null);
   const [archivo, setArchivo] = useState<File | null>(null);
   const [errorArchivo, setErrorArchivo] = useState<string | null>(null);
@@ -108,14 +110,20 @@ export function FormularioHomologacion({ pensums }: { pensums: PensumOpcion[] })
     };
   }, [captchaRequerido]);
 
-  // Cuando la server action devuelve un error (validación, tope diario, PDF rechazado por la IA),
-  // lo mostramos como notificación además del texto inline. useFormState entrega un objeto nuevo en
-  // cada envío, así que el efecto se dispara aunque el mensaje se repita.
+  // Respuesta del servidor (useFormState entrega un objeto nuevo en cada envío, así que el efecto se
+  // dispara aunque el mensaje se repita):
+  //   - error  -> notificación roja (validación, tope diario, PDF rechazado por la IA).
+  //   - aviso  -> la solicitud SÍ se registró pero la IA no estuvo disponible: lo anunciamos como
+  //               info y llevamos al estudiante a su caso (el servidor no redirige en este camino).
   useEffect(() => {
-    if (estado?.error) {
+    if (!estado) return;
+    if ("error" in estado) {
       sileo.error({ title: "No pudimos enviar tu solicitud", description: estado.error });
+    } else if ("aviso" in estado) {
+      sileo.info({ title: "Recibimos tu solicitud", description: estado.aviso });
+      router.push(`/mis-homologaciones/${estado.casoId}`);
     }
-  }, [estado]);
+  }, [estado, router]);
 
   // Misma validación que la server action, pero aquí para dar respuesta inmediata. Si el archivo
   // no sirve, también limpiamos el input para que no termine viajando en el envío.
@@ -423,7 +431,7 @@ export function FormularioHomologacion({ pensums }: { pensums: PensumOpcion[] })
         </div>
 
         <div className="flex flex-col items-stretch sm:items-end gap-2">
-          {estado?.error && (
+          {estado && "error" in estado && (
             <p className="text-sm font-medium text-destructive sm:text-right">{estado.error}</p>
           )}
           {captchaRequerido && !captchaListo && (

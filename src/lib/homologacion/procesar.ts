@@ -1,6 +1,10 @@
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { extraerMateriasDeTexto } from "@/lib/groq/extraer-materias";
+import { extraerMateriasDeTexto, extraerMateriasPorVision } from "@/lib/groq/extraer-materias";
 import { emparejarMaterias } from "@/lib/groq/homologar";
+
+// Mínimo de caracteres para dar el PDF por "con texto legible" (mismo criterio que el formulario). Si
+// el certificado no llega a esto, lo tratamos como escaneado y lo leemos por VISIÓN (OCR).
+const MIN_TEXTO_LEGIBLE = 30;
 
 // Orquestador del pipeline de homologación (Fases 4 + 5). Corre como "el sistema" (cliente con la
 // secret key), porque escribe materia_origen y vínculos —tablas que el invitado solo puede leer— y
@@ -14,7 +18,11 @@ import { emparejarMaterias } from "@/lib/groq/homologar";
 // moverse a un job en segundo plano sin tocar esta lógica. Si algo falla, lanza: quien lo invoca
 // decide (al enviar, dejamos el caso en 'procesando' para reprocesarlo, sin romperle el envío al
 // estudiante).
-export async function procesarCaso(casoId: string, textoPdf: string): Promise<void> {
+export async function procesarCaso(
+  casoId: string,
+  textoPdf: string,
+  bytesPdf?: Uint8Array,
+): Promise<void> {
   const supabase = crearClienteServicio();
 
   // 1. Pensum destino del caso.
@@ -38,8 +46,16 @@ export async function procesarCaso(casoId: string, textoPdf: string): Promise<vo
     (asignaturasRaw as { id: string; nombre: string; creditos: number; semestre: number }[] | null) ??
     [];
 
-  // 2 y 3. Extraer materias del PDF y guardarlas.
-  const materias = await extraerMateriasDeTexto(textoPdf);
+  // 2 y 3. Extraer materias del PDF y guardarlas. Si el certificado trae capa de texto, lo leemos
+  // como texto; si está ESCANEADO (sin texto) y tenemos los bytes, lo leemos por VISIÓN (OCR). Si la
+  // IA no responde en ninguno de los dos, extraer* lanza ErrorIANoDisponible y el pipeline se corta
+  // (lo maneja quien invoca, para avisarle al usuario).
+  const materias =
+    textoPdf.trim().length >= MIN_TEXTO_LEGIBLE
+      ? await extraerMateriasDeTexto(textoPdf)
+      : bytesPdf
+        ? await extraerMateriasPorVision(bytesPdf)
+        : [];
 
   let idsMateria: string[] = [];
   if (materias.length > 0) {

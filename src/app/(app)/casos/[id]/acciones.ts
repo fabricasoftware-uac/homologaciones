@@ -7,6 +7,7 @@ import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { notificarVeredicto } from "@/lib/homologacion/correo";
 import { extraerTextoPdf } from "@/lib/pdf/extraer";
 import { procesarCaso } from "@/lib/homologacion/procesar";
+import { ErrorIANoDisponible } from "@/lib/groq/cliente";
 
 // Acciones de la revisión del admin. Corren con la sesión del admin: la RLS ("Solo admin gestiona
 // vínculos" / "Solo admin actualiza casos") es la que de verdad autoriza la escritura.
@@ -160,9 +161,10 @@ export async function reprocesarCaso(formData: FormData): Promise<{ error: strin
   if (errorDescarga || !blob) {
     return { error: "No pudimos descargar el certificado para reprocesarlo." };
   }
+  const bytes = new Uint8Array(await blob.arrayBuffer());
   let texto = "";
   try {
-    texto = await extraerTextoPdf(new Uint8Array(await blob.arrayBuffer()));
+    texto = await extraerTextoPdf(bytes);
   } catch {
     return { error: "No pudimos leer el certificado para reprocesarlo." };
   }
@@ -177,9 +179,19 @@ export async function reprocesarCaso(formData: FormData): Promise<{ error: strin
     .eq("id", casoId);
 
   try {
-    await procesarCaso(casoId, texto);
+    // Pasamos los bytes: si el certificado está escaneado, el pipeline lo lee por visión (OCR).
+    await procesarCaso(casoId, texto, bytes);
   } catch (error) {
     console.error("[reprocesar] Falló el pipeline del caso", casoId, error);
+    // No lo dejamos colgado en 'procesando': lo devolvemos a revisión manual antes de responder.
+    await servicio.from("caso").update({ estado: "en_revision" }).eq("id", casoId);
+    revalidatePath(`/casos/${casoId}`);
+    if (error instanceof ErrorIANoDisponible) {
+      return {
+        error:
+          "El servicio de IA no está disponible ahora mismo (posible falta de cupo o tokens). El caso quedó en revisión; vuelve a intentar el reprocesamiento en unos minutos.",
+      };
+    }
     return { error: "El reprocesamiento falló. Inténtalo de nuevo en un momento." };
   }
 

@@ -9,15 +9,26 @@
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-// Orden de preferencia (calidad primero) y con familias variadas, para que un problema con una
-// familia no nos deje sin alternativa. Todos verificados con soporte de JSON mode. Si Groq
-// decomisiona alguno, el loop simplemente lo salta.
+// Se lanza cuando NINGÚN modelo de la cadena logró responder (rate-limit / cuota o tokens agotados /
+// servicio caído). Es distinto de "la IA respondió pero sin resultados": esto significa que no
+// pudimos ni preguntar, y quien orquesta el pipeline lo usa para AVISARLE al usuario (por sileo) que
+// el análisis automático no está disponible, en vez de tragarse el fallo en silencio.
+export class ErrorIANoDisponible extends Error {
+  constructor(mensaje = "El servicio de IA no está disponible en este momento.") {
+    super(mensaje);
+    this.name = "ErrorIANoDisponible";
+  }
+}
+
+// Orden de preferencia (calidad primero). Los tres son modelos VIGENTES de Groq (verificado contra
+// su tabla de deprecaciones, jul-2026) y todos soportan JSON mode. La familia gpt-oss va primero y
+// qwen3.6 cierra como red de una familia distinta, por si un problema afecta a toda una familia. Si
+// uno se satura por rate-limit/cuota, el loop pasa al siguiente. La cadena anterior (llama-3.3,
+// llama-4-scout, qwen3-32b, llama-3.1) quedó obsoleta: Groq la apaga entre jul y ago de 2026.
 const MODELOS: string[] = [
-  "llama-3.3-70b-versatile",
-  "openai/gpt-oss-120b",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-  "qwen/qwen3-32b",
-  "llama-3.1-8b-instant",
+  "openai/gpt-oss-120b", // el más capaz de la familia gpt-oss
+  "openai/gpt-oss-20b", // más rápido y barato; buen relevo si el 120b está saturado
+  "qwen/qwen3.6-27b", // familia distinta (multimodal) como última red
 ];
 
 export type MensajeGroq = { role: "system" | "user" | "assistant"; content: string };
@@ -103,11 +114,10 @@ export async function llamarGroq(
 }
 
 // Modelos multimodales (visión) para leer PDFs ESCANEADOS (sin capa de texto): se les pasa la imagen
-// de las páginas y devuelven el contenido. Cadena con fallback, igual que arriba.
-const MODELOS_VISION = [
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-  "meta-llama/llama-4-maverick-17b-128e-instruct",
-];
+// de las páginas y devuelven el contenido. Cadena con fallback, igual que arriba. qwen/qwen3.6-27b es
+// el único modelo con visión que sigue vigente en Groq (los llama-4 quedaron decomisionados en 2026);
+// hace OCR/lectura de imágenes y soporta JSON mode.
+const MODELOS_VISION = ["qwen/qwen3.6-27b"];
 
 // Llama a Groq con un prompt de texto + imágenes (data URLs). Devuelve el contenido del primer
 // modelo que responda, o null. Pide la respuesta en JSON.

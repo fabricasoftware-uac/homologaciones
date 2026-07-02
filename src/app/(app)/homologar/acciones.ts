@@ -9,10 +9,20 @@ import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { extraerTextoPdf } from "@/lib/pdf/extraer";
 import { validarDocumentoAcademico } from "@/lib/groq/validar";
 import { procesarCaso } from "@/lib/homologacion/procesar";
+import { ErrorIANoDisponible } from "@/lib/groq/cliente";
 import { notificarRecepcion } from "@/lib/homologacion/correo";
 import { verificarTurnstile } from "@/lib/seguridad/turnstile";
 
-export type EstadoHomologacion = { error: string } | null;
+// El resultado del envío para el formulario (useFormState):
+//   - { error }             -> algo impidió registrar la solicitud; se muestra en rojo.
+//   - { aviso, casoId }      -> la solicitud SÍ quedó registrada, pero el análisis automático de la
+//                               IA no pudo correr (p. ej. sin cupo/tokens). Se avisa como info y el
+//                               formulario lleva al estudiante a su caso.
+//   - null                   -> éxito normal (redirige al detalle desde el servidor).
+export type EstadoHomologacion =
+  | { error: string }
+  | { aviso: string; casoId: string }
+  | null;
 
 const TAMANO_MAXIMO = 10 * 1024 * 1024; // 10 MB, igual que el tope del bucket
 const LIMITE_DIARIO = 5; // homologaciones por día, contadas por IP y por invitado
@@ -113,18 +123,19 @@ export async function crearHomologacion(
   } catch {
     return { error: "No pudimos leer el PDF. Asegúrate de subir un archivo válido." };
   }
-  if (texto.trim().length < MIN_TEXTO_PDF) {
-    return {
-      error:
-        "No pudimos leer el contenido del PDF. Sube tu certificado de notas oficial con texto (no una foto o captura escaneada).",
-    };
-  }
-  const veredicto = await validarDocumentoAcademico(texto);
-  if (!veredicto.valido) {
-    return {
-      error:
-        "El archivo no parece un certificado de notas válido. Sube tu historial académico o pensum oficial.",
-    };
+  // Si el PDF trae poca o ninguna capa de texto lo tratamos como ESCANEADO: ya NO lo rechazamos
+  // (antes sí), el pipeline lo leerá por VISIÓN (OCR) más abajo. La validación anti-spam por texto
+  // solo aplica cuando hay texto; para escaneados confiamos en la extracción por visión + la revisión
+  // del admin (misma filosofía fail-open que validarDocumentoAcademico).
+  const escaneado = texto.trim().length < MIN_TEXTO_PDF;
+  if (!escaneado) {
+    const veredicto = await validarDocumentoAcademico(texto);
+    if (!veredicto.valido) {
+      return {
+        error:
+          "El archivo no parece un certificado de notas válido. Sube tu historial académico o pensum oficial.",
+      };
+    }
   }
 
   // --- 4. Identidad: el estudiante no se registra. Si pasó los filtros y aún no tiene sesión, lo
@@ -180,10 +191,19 @@ export async function crearHomologacion(
   // resiliente: si el procesamiento falla, el caso queda en 'procesando' (se puede reprocesar) y
   // igual confirmamos el envío, porque la solicitud del estudiante SÍ quedó registrada. ---
   const idCaso = (casoNuevo as { id: string }).id;
+  let iaNoDisponible = false;
   try {
-    await procesarCaso(idCaso, texto);
+    // Le pasamos también los bytes: si el certificado está escaneado, el pipeline lo lee por visión.
+    await procesarCaso(idCaso, texto, bytes);
   } catch (error) {
     console.error("[pipeline] Falló el procesamiento del caso", idCaso, error);
+    if (error instanceof ErrorIANoDisponible) {
+      // El análisis automático no pudo correr (IA sin cupo/tokens o caída). La solicitud SÍ quedó
+      // registrada: la sacamos de 'procesando' para que no se quede colgada en el detalle y la
+      // dejamos en revisión manual. Le avisaremos al estudiante por sileo (más abajo).
+      iaNoDisponible = true;
+      await crearClienteServicio().from("caso").update({ estado: "en_revision" }).eq("id", idCaso);
+    }
   }
 
   // Aviso persistente para la campana del admin (best-effort: si falla, no rompemos el envío). Lo
@@ -238,7 +258,19 @@ export async function crearHomologacion(
     console.error("[correo] No se pudo enviar el comprobante de recepción", idCaso, error);
   }
 
-  // Lo llevamos directo al detalle de SU caso: ahí ve la "posible homologación" (el aproximado de la
-  // IA) en vez de un acuse genérico. Si el pipeline falló, el detalle muestra "Estamos analizando…".
+  // Si la IA no estuvo disponible, NO redirigimos desde el servidor: devolvemos un aviso para que el
+  // formulario se lo anuncie al estudiante por sileo (su solicitud quedó registrada y pasará a
+  // revisión manual) y luego lo lleve a su caso. Los best-effort de arriba (correo de recepción,
+  // aviso al admin) ya corrieron igual.
+  if (iaNoDisponible) {
+    return {
+      aviso:
+        "Recibimos tu solicitud y quedó registrada. El análisis automático no está disponible en este momento, así que un asesor la revisará manualmente y te avisará el resultado por correo.",
+      casoId: idCaso,
+    };
+  }
+
+  // Camino normal: lo llevamos directo al detalle de SU caso, donde ve la "posible homologación" (el
+  // aproximado de la IA) en vez de un acuse genérico.
   redirect(`/mis-homologaciones/${idCaso}`);
 }
