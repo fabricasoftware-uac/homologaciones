@@ -6,6 +6,7 @@ import { crearClienteServidor } from "@/lib/supabase/servidor";
 import { esHexValido } from "@/lib/marca/configuracion";
 import { CLAVES_FONDO } from "@/lib/marca/fondos";
 import { CLAVES_POSICION } from "@/lib/marca/notif";
+import { CLAVES_TEMA_OSCURO } from "@/lib/marca/temas-oscuros";
 
 // Guarda la personalización de marca (nombre, colores y logo). Solo el admin: la RLS de
 // `configuracion` y del bucket 'marca' lo autorizan. Tras guardar, revalidamos el layout raíz para
@@ -45,7 +46,11 @@ export async function guardarConfiguracion(
   const posicionBruta = String(formData.get("notif_posicion") ?? "top-center");
   const notifPosicion = CLAVES_POSICION.includes(posicionBruta) ? posicionBruta : "top-center";
   const notaMinima = Number(formData.get("nota_minima"));
+  // Paleta del modo oscuro: validamos la clave contra las conocidas (si llega algo raro, "pizarra").
+  const temaBruto = String(formData.get("tema_oscuro") ?? "pizarra");
+  const temaOscuro = CLAVES_TEMA_OSCURO.includes(temaBruto) ? temaBruto : "pizarra";
   const logo = formData.get("logo");
+  const logoOscuro = formData.get("logo_oscuro");
 
   if (!nombre) return { error: "Escribe el nombre de la institución." };
   if (!Number.isFinite(notaMinima) || notaMinima < 0 || notaMinima > 5) {
@@ -76,6 +81,7 @@ export async function guardarConfiguracion(
     notif_color: notifColor,
     notif_posicion: notifPosicion,
     nota_minima: notaMinima,
+    tema_oscuro: temaOscuro,
     actualizado_en: new Date().toISOString(),
   };
 
@@ -91,6 +97,21 @@ export async function guardarConfiguracion(
       .upload(ruta, bytes, { contentType: logo.type, upsert: true });
     if (errorLogo) return { error: "No pudimos subir el logo. Inténtalo de nuevo." };
     cambios.logo_path = ruta;
+  }
+
+  // Logo para el modo oscuro (versión clara/blanca). Mismo tratamiento que el logo normal; opcional.
+  if (logoOscuro instanceof File && logoOscuro.size > 0) {
+    const ext = TIPOS_LOGO[logoOscuro.type];
+    if (!ext) return { error: "El logo para modo oscuro debe ser PNG, JPG, SVG o WebP." };
+    if (logoOscuro.size > LOGO_MAX) return { error: "El logo para modo oscuro no puede pesar más de 2 MB." };
+
+    const ruta = `logo-oscuro-${Date.now()}.${ext}`;
+    const bytes = new Uint8Array(await logoOscuro.arrayBuffer());
+    const { error: errorLogoOscuro } = await supabase.storage
+      .from("marca")
+      .upload(ruta, bytes, { contentType: logoOscuro.type, upsert: true });
+    if (errorLogoOscuro) return { error: "No pudimos subir el logo para modo oscuro. Inténtalo de nuevo." };
+    cambios.logo_oscuro_path = ruta;
   }
 
   const { error } = await supabase.from("configuracion").update(cambios).eq("id", 1);
