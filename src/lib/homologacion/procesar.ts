@@ -1,11 +1,7 @@
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { extraerMateriasDeTexto, extraerMateriasPorVision, parsearSENA } from "@/lib/groq/extraer-materias";
 import { emparejarMaterias } from "@/lib/groq/homologar";
 import { llamarGemini } from "@/lib/gemini/cliente";
-
-// Mínimo de caracteres para dar el PDF por "con texto legible" (mismo criterio que el formulario). Si
-// el certificado no llega a esto, lo tratamos como escaneado y lo leemos por VISIÓN (OCR).
-const MIN_TEXTO_LEGIBLE = 30;
+import { extraerUnidadesAcademicas } from "@/lib/extraccion";
 
 // Orquestador del pipeline de homologación (Fases 4 + 5). Corre como "el sistema" (cliente con la
 // secret key), porque escribe materia_origen y vínculos —tablas que el invitado solo puede leer— y
@@ -38,7 +34,6 @@ export async function procesarCaso(
   }
   const filaCaso = caso as { pensum_destino_id: string; institucion_origen_nombre: string | null };
   const pensumDestinoId = filaCaso.pensum_destino_id;
-  const esSena = /sena/i.test(filaCaso.institucion_origen_nombre ?? "");
 
   // Asignaturas del pensum destino, ordenadas por semestre (el orden fija el índice que ve la IA).
   const { data: asignaturasRaw } = await supabase
@@ -50,15 +45,15 @@ export async function procesarCaso(
     (asignaturasRaw as { id: string; nombre: string; creditos: number; semestre: number }[] | null) ??
     [];
 
-  // 2 y 3. Extraer materias del PDF y guardarlas. Si es SENA: parser determinístico (regex).
-  // Si es universitario con texto: IA. Si está escaneado: visión (OCR).
-  const materias = esSena
-    ? parsearSENA(textoPdf)
-    : textoPdf.trim().length >= MIN_TEXTO_LEGIBLE
-      ? await extraerMateriasDeTexto(textoPdf)
-      : bytesPdf
-        ? await extraerMateriasPorVision(bytesPdf)
-        : [];
+  // 2 y 3. Extraer unidades académicas del PDF usando la capa de extracción.
+  // La capa detecta automáticamente si es SENA (parser regex) o universitario (IA).
+  const resultado = await extraerUnidadesAcademicas(
+    textoPdf,
+    filaCaso.institucion_origen_nombre ?? "",
+    bytesPdf,
+  );
+  const materias = resultado.unidades;
+  const esSena = resultado.tipoInstitucion === "sena";
 
   let idsMateria: string[] = [];
   if (materias.length > 0) {
