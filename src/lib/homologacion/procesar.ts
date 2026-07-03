@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { llamarGemini, generarEmbeddings } from "@/lib/gemini/cliente";
+import { llamarGroq } from "@/lib/groq/cliente";
+import { llamarGemini } from "@/lib/gemini/cliente";
+import { generarEmbeddings } from "@/lib/embedding";
 import { extraerYNormalizar, type UnidadAcademicaNormalizada } from "@/lib/extraccion";
 import { decidirVinculos } from "./motor";
 
@@ -324,13 +326,21 @@ async function estimarSemestreConGemini(
 - El resultado es el PRIMER semestre que todavía le quedaría por cursar.
 - Responde ÚNICAMENTE un objeto JSON con esta forma: {"semestre": 1, "razon": "explicación breve en español"}`;
 
-  const contenido = await llamarGemini(
-    [
-      { role: "system", content: sistema },
-      { role: "user", content: texto },
-    ],
-    { json: true, temperatura: 0, modelos: ["gemini-2.5-flash-lite"] },
-  );
+  const contenido =
+    (await llamarGroq(
+      [
+        { role: "system", content: sistema },
+        { role: "user", content: texto },
+      ],
+      { json: true, temperatura: 0 },
+    )) ??
+    (await llamarGemini(
+      [
+        { role: "system", content: sistema },
+        { role: "user", content: texto },
+      ],
+      { json: true, temperatura: 0, modelos: ["gemini-2.5-flash-lite"] },
+    ));
 
   if (!contenido) return null;
 
