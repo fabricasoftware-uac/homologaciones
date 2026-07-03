@@ -39,6 +39,84 @@ Reglas:
 Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"vinculos": [{"materia": 0, "asignatura": 0, "similitud": 0, "razon": ""}]}`;
 
+// ── FASE 7 · Emparejamiento PER-UNIDAD ──
+//
+// En vez del mega-prompt (todas las materias × todas las asignaturas, origen de los 429 y de los
+// json_validate_failed con payloads grandes), esta función juzga UNA unidad de origen contra su
+// lista corta de candidatos (el Top-N que eligió la búsqueda vectorial). Llamadas pequeñas = JSON
+// estable, rate limit repartido, y el resultado es cacheable por (unidad × pensum).
+
+const SISTEMA_UNIDAD = `Eres un experto en homologación académica universitaria en Colombia. Recibes UNA materia o competencia de origen (con su descripción y resultados de aprendizaje si los tiene) y una lista corta de asignaturas candidatas del plan destino (cada una con su índice "j").
+
+Tu tarea: decidir cuáles asignaturas candidatas quedan CUBIERTAS por la unidad de origen.
+- Si los nombres son iguales o casi iguales, es equivalencia segura (similitud 95-100).
+- Evalúa también por contenido y temática: los resultados de aprendizaje son la EVIDENCIA principal.
+- Una competencia amplia puede cubrir VARIAS asignaturas; una materia normal usualmente cubre una.
+- Incluye solo equivalencias con similitud 55 o más. Si ninguna candidata es equivalente, devuelve la lista vacía (es una respuesta válida y frecuente).
+- Para cada equivalencia: "razon" breve (máximo 15 palabras, en español) citando la evidencia.
+
+Responde ÚNICAMENTE un objeto JSON con esta forma:
+{"vinculos": [{"asignatura": 0, "similitud": 0, "razon": ""}]}`;
+
+export type VinculoUnidad = { asignatura: number; similitud: number; razon: string | null };
+
+export async function emparejarUnidad(
+  origen: MateriaParaEmparejar,
+  candidatos: AsignaturaParaEmparejar[],
+): Promise<VinculoUnidad[]> {
+  if (candidatos.length === 0) return [];
+
+  const payload = {
+    unidad_origen: { nombre: origen.nombre, creditos: origen.creditos, nota: origen.nota },
+    asignaturas_candidatas: candidatos.map((a, j) => ({
+      j,
+      nombre: a.nombre,
+      creditos: a.creditos,
+      semestre: a.semestre,
+    })),
+  };
+
+  const contenido =
+    (await llamarGroq(
+      [
+        { role: "system", content: SISTEMA_UNIDAD },
+        { role: "user", content: JSON.stringify(payload) },
+      ],
+      { json: true, modelos: MODELOS_LIGEROS },
+    )) ??
+    (await llamarGemini(
+      [
+        { role: "system", content: SISTEMA_UNIDAD },
+        { role: "user", content: JSON.stringify(payload) },
+      ],
+      { json: true, modelos: MODELOS_LIGEROS_GEMINI },
+    ));
+  if (!contenido) return [];
+
+  try {
+    const parsed = JSON.parse(contenido) as { vinculos?: unknown[] };
+    const crudos = Array.isArray(parsed.vinculos) ? parsed.vinculos : [];
+    const resultado: VinculoUnidad[] = [];
+    for (const crudo of crudos) {
+      const v = crudo as Record<string, unknown>;
+      const asignatura = Number(v.asignatura);
+      const similitud = Number(v.similitud);
+      if (!Number.isInteger(asignatura) || asignatura < 0 || asignatura >= candidatos.length) continue;
+      if (!Number.isFinite(similitud) || similitud < SIMILITUD_MINIMA) continue;
+      const razonCruda = typeof v.razon === "string" ? v.razon.trim() : "";
+      resultado.push({
+        asignatura,
+        similitud: Math.max(0, Math.min(100, Math.round(similitud))),
+        razon: razonCruda ? razonCruda.slice(0, 160) : null,
+      });
+    }
+    return resultado;
+  } catch {
+    console.error("[groq] Emparejamiento de unidad: la respuesta no era JSON válido:", contenido);
+    return [];
+  }
+}
+
 export async function emparejarMaterias(
   origen: MateriaParaEmparejar[],
   destino: AsignaturaParaEmparejar[],

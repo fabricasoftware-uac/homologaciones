@@ -594,3 +594,46 @@ Catálogo de ~66 instituciones de educación superior colombianas para el autoco
 - [ ] Firma digital en actas
 - [ ] Integración con SNIES (catálogo oficial de IES colombianas)
 - [ ] Tests automatizados
+
+---
+
+## 13. Fase 7 — Motor de decisión en cascada (implementado)
+
+El emparejamiento dejó de ser un mega-prompt (todas las materias × todas las asignaturas) y pasó a
+una CASCADA de costo creciente en `src/lib/homologacion/motor.ts` (`decidirVinculos`):
+
+| Nivel | Mecanismo | Costo |
+|---|---|---|
+| 0 | **Caché de decisiones** (`decision_matching`): la decisión "¿qué cubre esta unidad en este pensum?" se reutiliza entre estudiantes (clave: hash de la unidad × pensum). Incluye decisiones negativas. | 0 tokens |
+| 1 | **Regla de nombre**: igualdad de nombre normalizado (tildes, mayúsculas, romanos finales) → vínculo 98%. | 0 tokens |
+| 2 | **Vectores**: Top-10 candidatas por coseno pgvector (`buscar_asignaturas_similares`). | 0 tokens |
+| 3 | **LLM por unidad** (`emparejarUnidad`): juzga UNA unidad contra sus pocas candidatas, con los RAs como evidencia. Su resultado se cachea. | la única llamada con costo |
+
+Complementos:
+- **Dedup por documento** (`caso.hash_documento`): un PDF ya procesado reutiliza unidades y
+  embeddings del caso anterior (0 tokens de extracción). `procesar.ts → buscarExtraccionPrevia`.
+- **Quality Gate** (`extraccion/calidad.ts`): valida que el texto extraído sea usable (proporción de
+  letras, caracteres corruptos, separación de palabras) antes de parsear; si no, ruta a OCR.
+- **SenaParser v2** (`extraccion/sena-parser.ts`): parsing ESTRUCTURAL por marcadores (limpia
+  encabezados de página y firma; nombre = cola en caso mixto o última oración del segmento previo).
+  El regex anterior desalineaba los bloques 2+ (nombres basura) y perdía competencias: con la
+  constancia ADSI real pasa de 10 competencias (9 con nombre corrupto) a 19 competencias / 72 RAs /
+  0 sin nombre.
+- Resolución global por caso (greedy por similitud): cada asignatura destino se homologa a lo sumo
+  una vez; una competencia SENA puede cubrir varias asignaturas.
+- Fallback sin embeddings: el motor cae al emparejamiento legacy (una llamada contra todo el pensum).
+
+Con el caché, el costo por programa repetido tiende a CERO: el primer estudiante de un programa paga
+las llamadas; los siguientes reutilizan extracción (hash) y decisiones (caché).
+
+### 13.1 Loop de aprendizaje (cierre de la Fase 7)
+
+Las decisiones del ASESOR alimentan el caché: `vincular`, `desvincular` y `confirmarSugerencias`
+llaman a `actualizarDecisionAdmin(materiaOrigenId)` (`motor.ts`), que upserta en `decision_matching`
+el estado APROBADO actual de esa unidad contra el pensum del caso, con `fuente: 'admin'`.
+
+- El siguiente estudiante del mismo programa recibe la decisión HUMANA en el Nivel 0 (0 tokens).
+- Una decisión `admin` nunca es sobrescrita por la IA (`guardarDecision` la respeta).
+- También se cachea el "no homologa nada" del asesor (decisión negativa).
+- La corrección se hace UNA vez y aplica para siempre: el costo y el error del sistema DECRECEN con
+  el uso.

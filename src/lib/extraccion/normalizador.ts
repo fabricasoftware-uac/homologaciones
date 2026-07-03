@@ -40,14 +40,28 @@ function normalizarMateriaUniversitaria(
   };
 }
 
+// Conversión de horas SENA a créditos académicos. El SENA mide en INTENSIDAD HORARIA (IH); las
+// universidades en créditos. Estándar colombiano (Decreto 1330): 1 crédito = 48 horas de trabajo
+// académico. Sin esto, una competencia de 1008 horas aparecía como "1008 créditos" en el panel.
+// Las horas originales se conservan en metadatos.intensidad_horaria.
+const HORAS_POR_CREDITO = 48;
+
+function horasACreditos(horas: number | null): number | null {
+  if (horas === null || !Number.isFinite(horas) || horas <= 0) return null;
+  return Math.max(1, Math.round(horas / HORAS_POR_CREDITO));
+}
+
 function normalizarCompetenciaSENA(
   raw: MateriaExtraida,
 ): Omit<UnidadAcademicaNormalizada, "textoEmbedding"> {
   const texto = raw.nombre;
-  const matchCompetencia = texto.match(/^Competencia:\s*\n([\s\S]+?)(?:\n\nResultados de aprendizaje:)?/);
-  const nombreLimpio = matchCompetencia
-    ? matchCompetencia[1].trim()
-    : texto.replace(/^Competencia:\s*\n?/, "").split("\n\nResultados de aprendizaje:")[0].trim();
+  // OJO: nada de regex perezoso con terminador opcional aquí — /([\s\S]+?)(?:...)?/ matchea UN solo
+  // carácter (el nombre quedaba truncado a su primera letra en la BD y el panel mostraba "E", "G"...).
+  // El split es determinístico: todo lo anterior al bloque de RAs, sin el prefijo "Competencia:".
+  const nombreLimpio = texto
+    .replace(/^Competencia:\s*\n?/, "")
+    .split("\n\nResultados de aprendizaje:")[0]
+    .trim();
 
   let ras: string[] = [];
   const metadatos = raw.metadatos as { resultados_aprendizaje?: string[] } | null | undefined;
@@ -68,15 +82,18 @@ function normalizarCompetenciaSENA(
     : nombreLimpio;
 
   // Solo guardamos en metadatos lo que NO tiene esquema definido. Los RAs ya están en componentes.
-  const metaLimpio = raw.metadatos
-    ? { ...(raw.metadatos as Record<string, unknown>), resultados_aprendizaje: undefined }
-    : null;
+  // Las horas originales (IH) se conservan aquí: `creditos` lleva la CONVERSIÓN a créditos.
+  const metaLimpio: Record<string, unknown> = {
+    ...((raw.metadatos as Record<string, unknown>) ?? {}),
+    resultados_aprendizaje: undefined,
+    intensidad_horaria: raw.creditos,
+  };
 
   return {
     nombre: nombreLimpio,
     descripcion,
     componentes: ras,
-    creditos: raw.creditos,
+    creditos: horasACreditos(raw.creditos),
     nota: raw.nota,
     semestre: raw.semestre_origen,
     tipo: raw.tipo ?? "competencia",

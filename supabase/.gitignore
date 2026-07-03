@@ -6,3 +6,24 @@
 .env.keys
 .env.local
 .env.*.local
+
+node_modules/
+.next/
+next-env.d.ts
+# Caché incremental de TypeScript: se regenera solo en cada build.
+*.tsbuildinfo
+
+# Variables de entorno con claves reales (Groq, Supabase). Solo se versiona .env.example.
+.env
+.env.local
+.env*.local
+.claude
+.skills
+text.txt
+
+# Basura de macOS/Windows (no debe versionarse).
+.DS_Store
+Thumbs.db
+
+# Certificados/PDFs de estudiantes de ejemplo: contienen datos personales, no se versionan.
+docs/ejemplos/

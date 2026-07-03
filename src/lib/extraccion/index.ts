@@ -1,6 +1,8 @@
 import { SenaParser } from "./sena-parser";
 import { ParserIA } from "./ia-parser";
 import { normalizar } from "./normalizador";
+import { evaluarCalidadTexto } from "./calidad";
+import { extraerMateriasPorVision } from "@/lib/groq/extraer-materias";
 import type {
   MateriaExtraida,
   UnidadAcademicaNormalizada,
@@ -42,8 +44,37 @@ export async function extraerUnidadesAcademicas(
     `[extraccion] Institución: ${institucionOrigen} → tipo: ${tipoInstitucion} → extractor: ${extractor.nombre}`,
   );
 
-  const unidades = await extractor.extraer(textoPdf, bytesPdf);
+  // Camino SENA con RED DE SEGURIDAD: el regex es un punto único de falla (si el SENA cambia el
+  // formato, devolvería 0 competencias EN SILENCIO y el caso quedaría vacío). Por eso: (a) si el
+  // texto no es usable (escaneado/corrupto) vamos directo a visión con el prompt SENA; (b) si el
+  // parser determinístico no encuentra nada, caemos al ParserIA en vez de aceptar el vacío.
+  if (tipoInstitucion === "sena") {
+    const calidad = evaluarCalidadTexto(textoPdf);
 
+    if (!calidad.usable && bytesPdf) {
+      console.warn(`[extraccion] SENA con texto no usable (${calidad.motivo}) → visión SENA (OCR).`);
+      // El parseo genérico de visión marca tipo "materia": lo corregimos a "competencia" para que
+      // el normalizador aplique la lógica SENA (nombre limpio, horas → créditos, RAs).
+      const unidades = (await extraerMateriasPorVision(bytesPdf, true)).map((u) => ({
+        ...u,
+        tipo: "competencia",
+      }));
+      return { unidades, tipoInstitucion, metodo: "VisionSENA" };
+    }
+
+    const unidades = await parserSena.extraer(textoPdf);
+    if (unidades.length > 0) {
+      return { unidades, tipoInstitucion, metodo: parserSena.nombre };
+    }
+
+    console.warn(
+      "[extraccion] SenaParser no encontró competencias (¿cambió el formato del SENA?); fallback a ParserIA.",
+    );
+    const rescatadas = await parserIA.extraer(textoPdf, bytesPdf);
+    return { unidades: rescatadas, tipoInstitucion, metodo: `${parserSena.nombre}→${parserIA.nombre}` };
+  }
+
+  const unidades = await extractor.extraer(textoPdf, bytesPdf);
   return { unidades, tipoInstitucion, metodo: extractor.nombre };
 }
 

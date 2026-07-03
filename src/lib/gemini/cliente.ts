@@ -200,3 +200,72 @@ export async function llamarGeminiVision(
   console.error("[gemini-vision] Todos los modelos de visión fallaron.");
   return null;
 }
+
+// ── Embeddings (FASE 5) ──
+//
+// Genera embeddings con Gemini text-embedding-004 (768 dimensiones). Se usan para preparar la
+// búsqueda semántica de la Fase 6 (mandar a la IA solo el Top-N de candidatos en vez del producto
+// cruzado completo). Aquí SOLO se generan los vectores; no se hace ninguna búsqueda.
+
+// gemini-embedding-001 es el modelo de embeddings vigente (text-embedding-004 fue retirado). Devuelve
+// 3072 dims por defecto, pero admite dimensión configurable: pedimos 768 para que calce con la columna
+// vector(768). taskType SEMANTIC_SIMILARITY es el indicado para comparar unidades por similitud (lo
+// usamos igual en origen y destino). Nota: para cosine (<=>, que usa la Fase 6) no hace falta
+// normalizar el vector truncado; el operador es invariante a la magnitud.
+const MODELO_EMBEDDING = "gemini-embedding-001";
+export const DIMENSION_EMBEDDING = 768;
+const CONFIG_EMBEDDING = {
+  outputDimensionality: DIMENSION_EMBEDDING,
+  taskType: "SEMANTIC_SIMILARITY",
+} as const;
+
+async function embedirUno(ai: GoogleGenAI, texto: string): Promise<number[] | null> {
+  try {
+    const resp = await ai.models.embedContent({ model: MODELO_EMBEDDING, contents: texto, config: CONFIG_EMBEDDING });
+    const values = resp.embeddings?.[0]?.values;
+    return Array.isArray(values) && values.length > 0 ? values : null;
+  } catch {
+    return null;
+  }
+}
+
+// Genera embeddings para una lista de textos. Devuelve un arreglo ALINEADO con la entrada (mismo
+// orden, misma longitud); `null` en las posiciones que fallen. Es BEST-EFFORT: la generación de
+// embeddings NUNCA debe romper el pipeline —sin GOOGLE_GENAI_API_KEY o si la API falla, devuelve
+// null y el resto del flujo (extracción, matching) sigue igual—.
+export async function generarEmbeddings(textos: string[]): Promise<(number[] | null)[]> {
+  if (textos.length === 0) return [];
+
+  const ai = crearCliente();
+  if (!ai) {
+    console.error("[gemini-embed] Sin GOOGLE_GENAI_API_KEY: no se generan embeddings.");
+    return textos.map(() => null);
+  }
+
+  const LOTE = 100; // text-embedding-004 admite lotes; cortamos por si llegan muchas unidades.
+  const resultado: (number[] | null)[] = [];
+
+  for (let i = 0; i < textos.length; i += LOTE) {
+    const lote = textos.slice(i, i + LOTE);
+    try {
+      const resp = await ai.models.embedContent({ model: MODELO_EMBEDDING, contents: lote, config: CONFIG_EMBEDDING });
+      const embs = resp.embeddings ?? [];
+      if (embs.length === lote.length) {
+        for (const e of embs) {
+          const values = e?.values;
+          resultado.push(Array.isArray(values) && values.length > 0 ? values : null);
+        }
+      } else {
+        // La API no devolvió uno por texto: caemos a uno por uno para no desalinear el resultado.
+        console.warn(`[gemini-embed] Batch desalineado (${embs.length}/${lote.length}); uno por uno.`);
+        for (const t of lote) resultado.push(await embedirUno(ai, t));
+      }
+    } catch (error) {
+      const detalle = error instanceof Error ? error.message : String(error);
+      console.warn(`[gemini-embed] Lote falló (${detalle}); esas unidades quedan sin embedding.`);
+      for (let j = 0; j < lote.length; j++) resultado.push(null);
+    }
+  }
+
+  return resultado;
+}
