@@ -277,6 +277,11 @@ async function guardarDecision(
   vinculos: DecisionUnidad,
   fuente: "ia" | "regla",
 ): Promise<void> {
+  // No cachear decisiones vacías: si la IA no encontró equivalencias en este momento,
+  // no significa que no existan — otro modelo, otra versión del pensum, o simplemente
+  // un falso negativo del LLM. Dejar que el siguiente caso re-evalúe.
+  if (vinculos.length === 0) return;
+
   try {
     // Una decisión HUMANA nunca se pisa con una automática: si el asesor ya decidió esta unidad
     // contra este pensum, la IA no la toca.
