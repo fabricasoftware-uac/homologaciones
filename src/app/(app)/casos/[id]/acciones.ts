@@ -7,12 +7,83 @@ import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { notificarVeredicto } from "@/lib/homologacion/correo";
 import { extraerTextoPdf } from "@/lib/pdf/extraer";
 import { procesarCaso } from "@/lib/homologacion/procesar";
+import { actualizarDecisionAdmin } from "@/lib/homologacion/motor";
 import { ErrorIANoDisponible } from "@/lib/groq/cliente";
 
 // Acciones de la revisión del admin. Corren con la sesión del admin: la RLS ("Solo admin gestiona
 // vínculos" / "Solo admin actualiza casos") es la que de verdad autoriza la escritura.
 
 const VEREDICTOS = ["aprobado", "rechazado"] as const;
+
+// Entero opcional de un formulario: "" o inválido → null (las columnas smallint exigen enteros).
+function aEnteroOpcional(valor: FormDataEntryValue | null): number | null {
+  const n = Number(String(valor ?? "").trim());
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// ── Gestión manual de materias de origen ──
+// La extracción automática puede equivocarse u omitir: el admin puede AGREGAR una materia que faltó,
+// EDITAR una extraída (nombre/créditos/nota/semestre) o ELIMINARLA (sus vínculos caen en cascada).
+// La RLS "Solo admin gestiona materias de origen" autoriza estas escrituras con la sesión del admin.
+
+export async function agregarMateria(formData: FormData): Promise<{ error: string } | void> {
+  const casoId = String(formData.get("casoId") ?? "");
+  const nombre = String(formData.get("nombre") ?? "").trim();
+  if (!casoId) return { error: "Caso no válido." };
+  if (!nombre) return { error: "El nombre de la materia es obligatorio." };
+
+  const supabase = crearClienteServidor();
+  const { error } = await supabase.from("materia_origen").insert({
+    caso_id: casoId,
+    nombre,
+    creditos: aEnteroOpcional(formData.get("creditos")),
+    nota: String(formData.get("nota") ?? "").trim() || null,
+    semestre_origen: aEnteroOpcional(formData.get("semestre")),
+    tipo: "materia",
+    // Trazabilidad: distingue lo agregado a mano de lo extraído por el pipeline.
+    metadatos: { agregada_por_admin: true },
+    descripcion: nombre,
+    componentes: [],
+    texto_embedding: nombre,
+  });
+  if (error) return { error: "No se pudo agregar la materia." };
+  revalidatePath(`/casos/${casoId}`);
+}
+
+export async function editarMateria(formData: FormData): Promise<{ error: string } | void> {
+  const casoId = String(formData.get("casoId") ?? "");
+  const materiaId = String(formData.get("materiaId") ?? "");
+  const nombre = String(formData.get("nombre") ?? "").trim();
+  if (!casoId || !materiaId) return { error: "Materia no válida." };
+  if (!nombre) return { error: "El nombre de la materia es obligatorio." };
+
+  // Solo los campos que el admin ve/edita. La descripción enriquecida y los componentes (RAs) de la
+  // extracción se conservan tal cual: editar el nombre no debe borrar la evidencia.
+  const supabase = crearClienteServidor();
+  const { error } = await supabase
+    .from("materia_origen")
+    .update({
+      nombre,
+      creditos: aEnteroOpcional(formData.get("creditos")),
+      nota: String(formData.get("nota") ?? "").trim() || null,
+      semestre_origen: aEnteroOpcional(formData.get("semestre")),
+    })
+    .eq("id", materiaId);
+  if (error) return { error: "No se pudo guardar la materia." };
+  revalidatePath(`/casos/${casoId}`);
+}
+
+export async function eliminarMateria(formData: FormData): Promise<{ error: string } | void> {
+  const casoId = String(formData.get("casoId") ?? "");
+  const materiaId = String(formData.get("materiaId") ?? "");
+  if (!casoId || !materiaId) return { error: "Materia no válida." };
+
+  const supabase = crearClienteServidor();
+  // Sus vínculos se borran en cascada (FK materia_origen_id on delete cascade).
+  const { error } = await supabase.from("materia_origen").delete().eq("id", materiaId);
+  if (error) return { error: "No se pudo eliminar la materia." };
+  revalidatePath(`/casos/${casoId}`);
+}
 
 // Vincula (o re-vincula) una materia de origen con una asignatura destino y la deja APROBADA. Es la
 // acción central del estudio: el admin confirma una sugerencia de la IA o la corrige a mano. Como es
@@ -39,6 +110,8 @@ export async function vincular(formData: FormData) {
       estado: "aprobado",
     });
   }
+  // Cierre del loop: la decisión del asesor alimenta el caché y aplica a futuros casos del programa.
+  await actualizarDecisionAdmin(materiaOrigenId);
   revalidatePath(`/casos/${casoId}`);
 }
 
@@ -57,10 +130,16 @@ export async function confirmarSugerencias(formData: FormData): Promise<{ aproba
     .eq("caso_id", casoId)
     .eq("estado", "pendiente")
     .gte("similitud", umbral)
-    .select("id");
+    .select("id, materia_origen_id");
+
+  const filas = (data as { id: string; materia_origen_id: string }[] | null) ?? [];
+  // Cierre del loop: cada materia confirmada en lote también entrena el caché de decisiones.
+  for (const materiaId of new Set(filas.map((f) => f.materia_origen_id))) {
+    await actualizarDecisionAdmin(materiaId);
+  }
 
   revalidatePath(`/casos/${casoId}`);
-  return { aprobadas: (data as { id: string }[] | null)?.length ?? 0 };
+  return { aprobadas: filas.length };
 }
 
 // Quita la homologación de una materia (elimina el vínculo).
@@ -70,7 +149,17 @@ export async function desvincular(formData: FormData) {
   if (!casoId || !vinculoId) return;
 
   const supabase = crearClienteServidor();
+  // Guardamos a qué materia pertenecía ANTES de borrar, para re-cachear su estado resultante.
+  const { data: vRow } = await supabase
+    .from("vinculo")
+    .select("materia_origen_id")
+    .eq("id", vinculoId)
+    .maybeSingle();
   await supabase.from("vinculo").delete().eq("id", vinculoId);
+
+  const materiaId = (vRow as { materia_origen_id: string } | null)?.materia_origen_id;
+  if (materiaId) await actualizarDecisionAdmin(materiaId);
+
   revalidatePath(`/casos/${casoId}`);
 }
 

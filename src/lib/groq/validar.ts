@@ -1,4 +1,5 @@
 import { llamarGroq, MODELOS_LIGEROS } from "./cliente";
+import { llamarGemini, MODELOS_LIGEROS as MODELOS_LIGEROS_GEMINI } from "@/lib/gemini/cliente";
 
 // Validación de contenido del PDF con IA: ¿el archivo que subió la persona es de verdad un
 // documento académico (certificado de notas / historial / pensum) y no publicidad, contenido para
@@ -22,13 +23,21 @@ export async function validarDocumentoAcademico(texto: string): Promise<Veredict
   const recorte = texto.slice(0, 3000); // basta para clasificar (académico vs spam); menos tokens
   // Va en la cadena LIGERA (20b primero) para NO gastar el cupo del 120b, que reservamos para la
   // extracción de materias. Así validar + extraer no compiten por el mismo límite de tokens/min.
-  const contenido = await llamarGroq(
-    [
-      { role: "system", content: SISTEMA },
-      { role: "user", content: recorte },
-    ],
-    { json: true, modelos: MODELOS_LIGEROS },
-  );
+  const contenido =
+    (await llamarGroq(
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: recorte },
+      ],
+      { json: true, modelos: MODELOS_LIGEROS },
+    )) ??
+    (await llamarGemini(
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: recorte },
+      ],
+      { json: true, modelos: MODELOS_LIGEROS_GEMINI },
+    ));
 
   if (!contenido) {
     return { valido: true, motivo: "validación no disponible" };

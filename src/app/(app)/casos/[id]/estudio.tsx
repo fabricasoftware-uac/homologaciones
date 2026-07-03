@@ -15,6 +15,9 @@ import {
   IconBook as BookOpen,
   IconSchool as GraduationCap,
   IconBuildingBank as Building,
+  IconPlus as Plus,
+  IconPencil as Pencil,
+  IconChecks as Checks,
 } from "@tabler/icons-react";
 import { motion, AnimatePresence } from "motion/react";
 import clsx from "clsx";
@@ -30,7 +33,15 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import type { EstadoVinculo } from "@/types";
-import { vincular, desvincular, finalizarCaso, confirmarSugerencias } from "./acciones";
+import {
+  vincular,
+  desvincular,
+  finalizarCaso,
+  confirmarSugerencias,
+  agregarMateria,
+  editarMateria,
+  eliminarMateria,
+} from "./acciones";
 import { BotonReprocesar } from "./boton-reprocesar";
 import { SelectorPlantilla } from "./selector-plantilla";
 
@@ -126,7 +137,10 @@ export function EstudioHomologacion({
   plantillas,
 }: Props) {
   const [pendiente, iniciar] = useTransition();
-  const [origen, setOrigen] = useState<string | null>(null); // materia_origen seleccionada
+  // Selección de materias de origen. Normalmente UNA; con el modo "Seleccionar varias" activo se
+  // pueden marcar 2+ para vincularlas JUNTAS a una misma asignatura destino (homologación N→1).
+  const [origenes, setOrigenes] = useState<string[]>([]);
+  const [multiple, setMultiple] = useState(false);
   const [destino, setDestino] = useState<string | null>(null); // asignatura seleccionada
   const [columnaMovil, setColumnaMovil] = useState<"origen" | "destino">("origen"); // pestaña activa en móvil
   const [semestre, setSemestre] = useState(
@@ -134,12 +148,21 @@ export function EstudioHomologacion({
   );
   const [nota, setNota] = useState(caso.notaAdmin ?? "");
   const [notaInterna, setNotaInterna] = useState(caso.notaInterna ?? "");
+  // Editor de materias de origen: crear una que faltó o corregir/eliminar una extraída.
+  const [editorMateria, setEditorMateria] = useState<
+    { modo: "crear" } | { modo: "editar"; materia: MateriaStudio } | null
+  >(null);
 
   const { cerrado } = caso;
   const vinculoDeMateria = (id: string) => vinculos.find((v) => v.materiaOrigenId === id) ?? null;
-  const vinculoDeAsignatura = (id: string) => vinculos.find((v) => v.asignaturaId === id) ?? null;
+  // Una asignatura destino puede recibir VARIAS materias de origen (p. ej. Cálculo I + Cálculo II
+  // de origen homologan juntas un Cálculo del plan): por eso lista, no primera coincidencia.
+  const vinculosDeAsignatura = (id: string) => vinculos.filter((v) => v.asignaturaId === id);
   const aprobadas = vinculos.filter((v) => v.estado === "aprobado").length;
   const pct = materias.length > 0 ? Math.round((aprobadas / materias.length) * 100) : 0;
+  // Con UNA sola materia seleccionada aplican los atajos de sugerencia (confirmar/desvincular);
+  // con varias, el único camino es elegir destino y vincular el grupo.
+  const origen = origenes.length === 1 ? origenes[0] : null;
   const vinculoOrigen = origen ? vinculoDeMateria(origen) : null;
   // La sugerencia de la IA llega como vínculo 'pendiente'; si el admin ya la aprobó, queda 'aprobado'.
   const sugerenciaPendiente = !!vinculoOrigen && vinculoOrigen.estado !== "aprobado";
@@ -173,21 +196,48 @@ export function EstudioHomologacion({
   }, [destino, vinculos]);
 
   function limpiar() {
-    setOrigen(null);
+    setOrigenes([]);
     setDestino(null);
   }
 
+  // Clic en una materia de origen: en modo normal reemplaza la selección; en modo múltiple la
+  // agrega/quita del grupo.
+  function alternarOrigen(id: string) {
+    setOrigenes((prev) => {
+      if (multiple) return prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      return prev.length === 1 && prev[0] === id ? [] : [id];
+    });
+  }
+
+  function alternarMultiple() {
+    setMultiple((activo) => {
+      // Al apagar el modo, conservamos solo la primera seleccionada (volvemos al flujo simple).
+      if (activo) setOrigenes((prev) => prev.slice(0, 1));
+      return !activo;
+    });
+  }
+
+  // Vincula TODAS las materias seleccionadas con la asignatura destino (1 o varias → 1). Si alguna
+  // ya tenía vínculo, se re-vincula (mismo comportamiento del flujo simple).
   function hacerVincular() {
-    if (!origen || !destino) return;
-    const existente = vinculoDeMateria(origen);
+    if (origenes.length === 0 || !destino) return;
+    const seleccionadas = [...origenes];
     iniciar(async () => {
-      const fd = new FormData();
-      fd.set("casoId", caso.id);
-      fd.set("materiaOrigenId", origen);
-      fd.set("asignaturaId", destino);
-      fd.set("vinculoId", existente?.id ?? "");
-      await vincular(fd);
-      sileo.success({ title: "Materias vinculadas" });
+      for (const materiaId of seleccionadas) {
+        const existente = vinculoDeMateria(materiaId);
+        const fd = new FormData();
+        fd.set("casoId", caso.id);
+        fd.set("materiaOrigenId", materiaId);
+        fd.set("asignaturaId", destino);
+        fd.set("vinculoId", existente?.id ?? "");
+        await vincular(fd);
+      }
+      sileo.success({
+        title:
+          seleccionadas.length > 1
+            ? `${seleccionadas.length} materias vinculadas a la asignatura`
+            : "Materias vinculadas",
+      });
       limpiar();
     });
   }
@@ -235,6 +285,42 @@ export function EstudioHomologacion({
       sileo.success({
         title: aprobadas > 0 ? `${aprobadas} sugerencia(s) confirmada(s)` : "No había sugerencias por confirmar",
       });
+      limpiar();
+    });
+  }
+
+  // Guarda el editor de materias (crear o editar según el modo abierto).
+  function guardarMateria(fd: FormData) {
+    const editor = editorMateria;
+    if (!editor) return;
+    fd.set("casoId", caso.id);
+    if (editor.modo === "editar") fd.set("materiaId", editor.materia.id);
+    iniciar(async () => {
+      const res = editor.modo === "editar" ? await editarMateria(fd) : await agregarMateria(fd);
+      if (res?.error) {
+        sileo.error({ title: "No se pudo guardar", description: res.error });
+        return;
+      }
+      sileo.success({ title: editor.modo === "editar" ? "Materia actualizada" : "Materia agregada" });
+      setEditorMateria(null);
+      limpiar();
+    });
+  }
+
+  function hacerEliminarMateria() {
+    const editor = editorMateria;
+    if (!editor || editor.modo !== "editar") return;
+    const fd = new FormData();
+    fd.set("casoId", caso.id);
+    fd.set("materiaId", editor.materia.id);
+    iniciar(async () => {
+      const res = await eliminarMateria(fd);
+      if (res?.error) {
+        sileo.error({ title: "No se pudo eliminar", description: res.error });
+        return;
+      }
+      sileo.warning({ title: "Materia eliminada", description: "Sus vínculos también se quitaron." });
+      setEditorMateria(null);
       limpiar();
     });
   }
@@ -456,11 +542,38 @@ export function EstudioHomologacion({
           acento="text-slate-400 dark:text-slate-500"
           claseRaiz={columnaMovil === "origen" ? "flex md:flex" : "hidden md:flex"}
         >
+          {/* Herramientas de la columna origen: alta manual + modo de selección múltiple (para
+              vincular VARIAS materias a una sola asignatura de un tiro). */}
+          {!cerrado && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEditorMateria({ modo: "crear" })}
+                className="flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 hover:border-sky-400 dark:hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
+              >
+                <Plus className="w-4 h-4" /> Agregar materia
+              </button>
+              <button
+                type="button"
+                onClick={alternarMultiple}
+                title="Marca varias materias y vincúlalas juntas a una misma asignatura"
+                className={clsx(
+                  "flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold rounded-xl px-3 py-2.5 border-2 transition-colors",
+                  multiple
+                    ? "border-sky-500 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                    : "border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-sky-400 dark:hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400",
+                )}
+              >
+                <Checks className="w-4 h-4" />
+                {multiple ? "Selección múltiple: activa" : "Seleccionar varias"}
+              </button>
+            </div>
+          )}
           {agrupar(materiasOrdenadas).map(([sem, items]) => (
             <GrupoSemestre key={`o-${sem}`} sem={sem}>
               {items.map((m) => {
                 const v = vinculoDeMateria(m.id);
-                const seleccionada = origen === m.id;
+                const seleccionada = origenes.includes(m.id);
                 const dest = v ? asignaturaPorId.get(v.asignaturaId) : null;
                 // Avisos académicos: nota por debajo del mínimo, o destino con más créditos que el
                 // origen (se estaría homologando una materia "más pesada" con una más liviana).
@@ -483,12 +596,13 @@ export function EstudioHomologacion({
                     alerta={avisos.length > 0 ? avisos.join(" · ") : undefined}
                     estado={v?.estado ?? null}
                     vinculadoCon={
-                      dest ? { nombre: dest.nombre, aprobado: v?.estado === "aprobado" } : undefined
+                      dest ? { nombres: [dest.nombre], aprobado: v?.estado === "aprobado" } : undefined
                     }
                     seleccionada={seleccionada}
                     resaltada={destino != null && v?.asignaturaId === destino}
                     tipo="origen"
-                    onClick={cerrado ? undefined : () => setOrigen(seleccionada ? null : m.id)}
+                    onClick={cerrado ? undefined : () => alternarOrigen(m.id)}
+                    onEditar={cerrado ? undefined : () => setEditorMateria({ modo: "editar", materia: m })}
                   />
                 );
               })}
@@ -509,9 +623,15 @@ export function EstudioHomologacion({
           {agrupar(asignaturas).map(([sem, items]) => (
             <GrupoSemestre key={`d-${sem}`} sem={sem}>
               {items.map((a) => {
-                const v = vinculoDeAsignatura(a.id);
+                // Una asignatura puede recibir VARIAS materias de origen (homologación 2→1):
+                // el estado y el pie de la tarjeta reflejan el conjunto, no solo la primera.
+                const vs = vinculosDeAsignatura(a.id);
                 const seleccionada = destino === a.id;
-                const orig = v ? materiaPorId.get(v.materiaOrigenId) : null;
+                const aprobada = vs.some((v) => v.estado === "aprobado");
+                const pendiente = vs.find((v) => v.estado === "pendiente");
+                const nombresOrigen = vs
+                  .map((v) => materiaPorId.get(v.materiaOrigenId)?.nombre)
+                  .filter((n): n is string => !!n);
                 return (
                   <Tarjeta
                     key={a.id}
@@ -520,15 +640,17 @@ export function EstudioHomologacion({
                     nombre={a.nombre}
                     creditos={a.creditos}
                     nota={null}
-                    similitud={v && v.estado !== "aprobado" ? v.similitud : undefined}
-                    razon={v?.razon ?? undefined}
-                    vinculada={v?.estado === "aprobado"}
-                    estado={v?.estado ?? null}
+                    similitud={!aprobada && pendiente ? pendiente.similitud : undefined}
+                    razon={pendiente?.razon ?? undefined}
+                    vinculada={aprobada}
+                    estado={aprobada ? "aprobado" : pendiente ? "pendiente" : null}
                     vinculadoCon={
-                      orig ? { nombre: orig.nombre, aprobado: v?.estado === "aprobado" } : undefined
+                      nombresOrigen.length > 0
+                        ? { nombres: nombresOrigen, aprobado: aprobada }
+                        : undefined
                     }
                     seleccionada={seleccionada}
-                    resaltada={origen != null && v?.materiaOrigenId === origen}
+                    resaltada={origen != null && vs.some((v) => v.materiaOrigenId === origen)}
                     tipo="destino"
                     onClick={cerrado ? undefined : () => setDestino(seleccionada ? null : a.id)}
                   />
@@ -542,7 +664,7 @@ export function EstudioHomologacion({
 
       {/* Barra flotante de vinculación */}
       <AnimatePresence>
-        {!cerrado && origen && (
+        {!cerrado && origenes.length > 0 && (
           <motion.div
             initial={{ y: 80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -552,12 +674,16 @@ export function EstudioHomologacion({
             <div className="text-center md:text-left min-w-0">
               <span className="text-sm font-medium block">
                 {destino
-                  ? "Vincular la materia con la asignatura"
-                  : sugerenciaPendiente
-                    ? "La IA sugirió esta homologación"
-                    : vinculoOrigen
-                      ? "Materia ya homologada"
-                      : "Elige una asignatura destino"}
+                  ? origenes.length > 1
+                    ? `Vincular las ${origenes.length} materias con la asignatura`
+                    : "Vincular la materia con la asignatura"
+                  : origenes.length > 1
+                    ? `${origenes.length} materias seleccionadas · elige la asignatura destino`
+                    : sugerenciaPendiente
+                      ? "La IA sugirió esta homologación"
+                      : vinculoOrigen
+                        ? "Materia ya homologada"
+                        : "Elige una asignatura destino"}
               </span>
               {/* La justificación de la IA, para que el admin entienda el porqué de la sugerencia. */}
               {/* La barra es SIEMPRE oscura: nada de variantes dark: aquí (un dark:text-slate-500
@@ -575,7 +701,8 @@ export function EstudioHomologacion({
                   disabled={pendiente}
                   className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
                 >
-                  <LinkIcon className="w-4 h-4" /> Vincular
+                  <LinkIcon className="w-4 h-4" />
+                  {origenes.length > 1 ? `Vincular ${origenes.length} materias` : "Vincular"}
                 </button>
               ) : (
                 <>
@@ -608,6 +735,105 @@ export function EstudioHomologacion({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Editor de materias de origen: agregar una que faltó o corregir/eliminar una extraída. La
+          key reinicia los inputs (defaultValue) al cambiar de materia o de modo. */}
+      <Dialog open={editorMateria !== null} onOpenChange={(abierto) => !abierto && setEditorMateria(null)}>
+        <DialogContent key={editorMateria?.modo === "editar" ? editorMateria.materia.id : "crear"}>
+          <DialogHeader>
+            <DialogTitle>
+              {editorMateria?.modo === "editar" ? "Editar materia" : "Agregar materia"}
+            </DialogTitle>
+            <DialogDescription>
+              {editorMateria?.modo === "editar"
+                ? "Corrige lo que la extracción automática no leyó bien. Sus vínculos se conservan."
+                : "Agrega una materia del certificado que la extracción no detectó."}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              guardarMateria(new FormData(e.currentTarget));
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <label htmlFor="mat-nombre" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                Nombre
+              </label>
+              <input
+                id="mat-nombre"
+                name="nombre"
+                type="text"
+                required
+                defaultValue={editorMateria?.modo === "editar" ? editorMateria.materia.nombre : ""}
+                placeholder="Ej.: Cálculo Diferencial"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label htmlFor="mat-creditos" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                  Créditos
+                </label>
+                <input
+                  id="mat-creditos"
+                  name="creditos"
+                  type="number"
+                  min={1}
+                  defaultValue={editorMateria?.modo === "editar" ? editorMateria.materia.creditos ?? "" : ""}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label htmlFor="mat-semestre" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                  Semestre
+                </label>
+                <input
+                  id="mat-semestre"
+                  name="semestre"
+                  type="number"
+                  min={1}
+                  defaultValue={editorMateria?.modo === "editar" ? editorMateria.materia.semestre ?? "" : ""}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label htmlFor="mat-nota" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                  Nota
+                </label>
+                <input
+                  id="mat-nota"
+                  name="nota"
+                  type="text"
+                  defaultValue={editorMateria?.modo === "editar" ? editorMateria.materia.nota ?? "" : ""}
+                  placeholder="Ej.: 4.2"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              {editorMateria?.modo === "editar" && (
+                <button
+                  type="button"
+                  onClick={hacerEliminarMateria}
+                  disabled={pendiente}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-rose-600 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40 bg-transparent hover:bg-rose-50 dark:hover:bg-rose-500/10 disabled:opacity-50 transition-colors"
+                >
+                  Eliminar
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={pendiente}
+                className="px-4 py-2 rounded-lg text-sm font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-sm disabled:opacity-50 transition-colors"
+              >
+                {editorMateria?.modo === "editar" ? "Guardar cambios" : "Agregar materia"}
+              </button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -704,6 +930,7 @@ function Tarjeta({
   resaltada,
   tipo,
   onClick,
+  onEditar,
 }: {
   idElemento: string;
   codigo: string | null;
@@ -715,11 +942,15 @@ function Tarjeta({
   alerta?: string;
   vinculada?: boolean;
   estado: EstadoVinculo | null;
-  vinculadoCon?: { nombre: string; aprobado: boolean };
+  // Con qué está enlazada esta tarjeta: puede ser MÁS de una (dos materias de origen que juntas
+  // homologan una asignatura destino).
+  vinculadoCon?: { nombres: string[]; aprobado: boolean };
   seleccionada: boolean;
   resaltada: boolean;
   tipo: "origen" | "destino";
   onClick?: () => void;
+  // Edición manual (solo materias de origen): abre el editor sin disparar la selección.
+  onEditar?: () => void;
 }) {
   // Principio de diseño: la SUPERFICIE de la tarjeta es SIEMPRE neutra (blanco / superficie del tema
   // oscuro elegido), y el color solo SEÑALA, no inunda. El estado del vínculo va en una barra de
@@ -813,6 +1044,19 @@ function Tarjeta({
             <LinkIcon className="w-3 h-3" /> Vinculado
           </span>
         )}
+        {onEditar && (
+          <button
+            type="button"
+            title="Editar materia"
+            onClick={(e) => {
+              e.stopPropagation(); // que el lápiz no dispare la selección de la tarjeta
+              onEditar();
+            }}
+            className="p-1 -m-1 rounded text-slate-300 dark:text-slate-600 hover:text-sky-600 dark:hover:text-sky-400 transition-colors shrink-0"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
       {/* El nombre es SIEMPRE neutro: qué columna es ya lo dice el encabezado de la columna. Antes el
           destino iba en azul fijo, que chocaba con el color de marca y con los temas oscuros azulados. */}
@@ -854,7 +1098,12 @@ function Tarjeta({
           ) : (
             <ArrowLeft className="w-3 h-3 shrink-0" />
           )}
-          <span className="truncate">{vinculadoCon.nombre}</span>
+          <span className="truncate">{vinculadoCon.nombres.join("  +  ")}</span>
+          {vinculadoCon.nombres.length > 1 && (
+            <span className="shrink-0 text-[10px] font-bold bg-white/60 dark:bg-white/10 border border-current/20 rounded-full px-1.5">
+              {vinculadoCon.nombres.length}
+            </span>
+          )}
         </div>
       )}
     </motion.div>

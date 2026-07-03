@@ -13,6 +13,7 @@
     "db:status": "supabase status"
   },
   "dependencies": {
+    "@google/genai": "^2.10.0",
     "@napi-rs/canvas": "^1.0.0",
     "@radix-ui/react-accordion": "1.2.3",
     "@radix-ui/react-alert-dialog": "1.1.6",

@@ -88,6 +88,9 @@ export type DocumentoCaso = {
 };
 
 // Una materia extraída del PDF de la universidad de origen del estudiante.
+// La migración 0022 la generaliza como "unidad académica": puede ser una materia
+// universitaria tradicional (tipo = 'materia'), una competencia del SENA (tipo =
+// 'competencia') o cualquier otra estructura que surja en el futuro.
 export type MateriaOrigen = {
   id: string;
   caso_id: string;
@@ -96,6 +99,8 @@ export type MateriaOrigen = {
   creditos: number | null;
   nota: string | null;
   semestre_origen: number | null;
+  tipo: string;
+  metadatos: Record<string, unknown> | null;
 };
 
 // El emparejamiento materia_origen -> asignatura destino que propone la IA, con su % y estado.

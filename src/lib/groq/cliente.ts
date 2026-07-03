@@ -56,11 +56,11 @@ const MODELOS: string[] = [
 // MODELO, así que repartir el pipeline en modelos distintos evita saturar uno solo: la extracción
 // (la llamada clave) se queda con el 120b entero, mientras validación y emparejamiento corren en el
 // 20b. Cae a qwen y, en último caso, al 120b, si hiciera falta.
-export const MODELOS_LIGEROS: string[] = [
-  "openai/gpt-oss-20b",
-  "qwen/qwen3.6-27b",
-  "openai/gpt-oss-120b",
-];
+// qwen quedó FUERA de la cadena ligera: en producción falla json_validate_failed de forma
+// sistemática en tareas de emparejamiento (razona hasta agotar los tokens de salida sin producir el
+// JSON), y cada intento fallido quema tiempo. gpt-oss-20b → 120b, y el fallback a Gemini lo pone el
+// llamador.
+export const MODELOS_LIGEROS: string[] = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"];
 
 export type MensajeGroq = { role: "system" | "user" | "assistant"; content: string };
 
@@ -68,6 +68,7 @@ export type OpcionesGroq = {
   modelos?: string[]; // override de la cadena de modelos (por defecto, MODELOS)
   temperatura?: number;
   json?: boolean; // pide la respuesta en formato JSON (response_format: json_object)
+  maxTokens?: number; // máximo de tokens de salida (útil para respuestas largas como SENA)
 };
 
 type IntentoResultado =
@@ -93,7 +94,13 @@ async function intentarModelo(
       body: JSON.stringify({
         model: modelo,
         temperature: opciones.temperatura ?? 0,
+        // gpt-oss y qwen3.6 son modelos de RAZONAMIENTO: en modo JSON estricto, sin esto, a veces
+        // "gastan" la salida razonando y devuelven vacío (HTTP 400 json_validate_failed, intermitente
+        // con payloads grandes como el de SENA). "hidden" hace que razonen por dentro y entreguen SOLO
+        // el JSON → estable. Es el mismo fix que ya usa llamarGroqVision.
+        ...(/gpt-oss|qwen/.test(modelo) ? { reasoning_format: "hidden" } : {}),
         ...(opciones.json ? { response_format: { type: "json_object" } } : {}),
+        ...(opciones.maxTokens ? { max_tokens: opciones.maxTokens } : {}),
         messages: mensajes,
       }),
     });

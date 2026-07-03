@@ -9,7 +9,9 @@ next-env.d.ts
 .env.local
 .env*.local
 .claude
+.agents/skills
 text.txt
+
 
 # Basura de macOS/Windows (no debe versionarse).
 .DS_Store
@@ -19,3 +21,4 @@ Thumbs.db
 docs/ejemplos/
 
 #Futuros gitignore
+docs/ARQUITECTURA.md
