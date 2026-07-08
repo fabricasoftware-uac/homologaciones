@@ -156,18 +156,14 @@ export function EstudioHomologacion({
   >(null);
 
   const { cerrado } = caso;
-  const vinculoDeMateria = (id: string) => vinculos.find((v) => v.materiaOrigenId === id) ?? null;
-  // Una asignatura destino puede recibir VARIAS materias de origen (p. ej. Cálculo I + Cálculo II
-  // de origen homologan juntas un Cálculo del plan): por eso lista, no primera coincidencia.
+  const vinculoDeMateria = (id: string) => vinculos.filter((v) => v.materiaOrigenId === id);
   const vinculosDeAsignatura = (id: string) => vinculos.filter((v) => v.asignaturaId === id);
   const aprobadas = vinculos.filter((v) => v.estado === "aprobado").length;
   const pct = materias.length > 0 ? Math.round((aprobadas / materias.length) * 100) : 0;
-  // Con UNA sola materia seleccionada aplican los atajos de sugerencia (confirmar/desvincular);
-  // con varias, el único camino es elegir destino y vincular el grupo.
   const origen = origenes.length === 1 ? origenes[0] : null;
-  const vinculoOrigen = origen ? vinculoDeMateria(origen) : null;
-  // La sugerencia de la IA llega como vínculo 'pendiente'; si el admin ya la aprobó, queda 'aprobado'.
-  const sugerenciaPendiente = !!vinculoOrigen && vinculoOrigen.estado !== "aprobado";
+  const vinculosOrigen = origen ? vinculoDeMateria(origen) : [];
+  const vinculoOrigen = vinculosOrigen[0] ?? null;
+  const sugerenciaPendiente = vinculosOrigen.some((v) => v.estado !== "aprobado");
 
   // Para mostrar en cada tarjeta CON QUÉ está vinculada, sin tener que hacer clic.
   const asignaturaPorId = new Map(asignaturas.map((a) => [a.id, a] as const));
@@ -226,7 +222,7 @@ export function EstudioHomologacion({
     const seleccionadas = [...origenes];
     iniciar(async () => {
       for (const materiaId of seleccionadas) {
-        const existente = vinculoDeMateria(materiaId);
+        const existente = vinculoDeMateria(materiaId)[0];
         const fd = new FormData();
         fd.set("casoId", caso.id);
         fd.set("materiaOrigenId", materiaId);
@@ -245,7 +241,7 @@ export function EstudioHomologacion({
   }
 
   function hacerDesvincular() {
-    const existente = origen ? vinculoDeMateria(origen) : null;
+    const existente = origen ? vinculoDeMateria(origen)[0] : null;
     if (!existente) return;
     iniciar(async () => {
       const fd = new FormData();
@@ -257,18 +253,25 @@ export function EstudioHomologacion({
     });
   }
 
-  // Aprueba de un solo clic la homologación que sugirió la IA para la materia seleccionada, sin que
-  // el admin tenga que volver a elegir la asignatura destino. Reusa la pareja que ya propuso la IA.
+  // Aprueba de un clic TODAS las homologaciones pendientes sugeridas por la IA para la materia
+  // seleccionada, sin que el admin tenga que elegir destino. Para SENA, una competencia puede tener
+  // 2+ vínculos pendientes: se confirman todos juntos.
   function hacerConfirmar() {
-    if (!origen || !vinculoOrigen) return;
+    if (!origen || vinculosOrigen.length === 0) return;
     iniciar(async () => {
-      const fd = new FormData();
-      fd.set("casoId", caso.id);
-      fd.set("materiaOrigenId", origen);
-      fd.set("asignaturaId", vinculoOrigen.asignaturaId);
-      fd.set("vinculoId", vinculoOrigen.id);
-      await vincular(fd);
-      sileo.success({ title: "Vinculación confirmada" });
+      for (const v of vinculosOrigen) {
+        if (v.estado === "aprobado") continue;
+        const fd = new FormData();
+        fd.set("casoId", caso.id);
+        fd.set("materiaOrigenId", origen);
+        fd.set("asignaturaId", v.asignaturaId);
+        fd.set("vinculoId", v.id);
+        await vincular(fd);
+      }
+      const confirmadas = vinculosOrigen.filter((v) => v.estado !== "aprobado").length;
+      sileo.success({
+        title: confirmadas > 1 ? `${confirmadas} vinculaciones confirmadas` : "Vinculación confirmada",
+      });
       limpiar();
     });
   }
@@ -579,9 +582,20 @@ export function EstudioHomologacion({
           {agrupar(materiasOrdenadas).map(([sem, items]) => (
             <GrupoSemestre key={`o-${sem}`} sem={sem}>
               {items.map((m) => {
-                const v = vinculoDeMateria(m.id);
+                const vinculosMateria = vinculoDeMateria(m.id);
                 const seleccionada = origenes.includes(m.id);
-                const dest = v ? asignaturaPorId.get(v.asignaturaId) : null;
+                const destinos = vinculosMateria
+                  .map((v) => asignaturaPorId.get(v.asignaturaId))
+                  .filter((d): d is NonNullable<typeof d> => d != null);
+                const estados = vinculosMateria.map((v) => v.estado);
+                const estadoAgregado: EstadoVinculo | null =
+                  estados.length === 0 ? null
+                  : estados.every((e) => e === "aprobado") ? "aprobado"
+                  : estados.some((e) => e === "pendiente") ? "pendiente"
+                  : "pendiente";
+
+                const dest = destinos[0] ?? null;
+                const todasAprobadas = estados.length > 0 && estados.every((e) => e === "aprobado");
                 // Avisos académicos: nota por debajo del mínimo, o destino con más créditos que el
                 // origen (se estaría homologando una materia "más pesada" con una más liviana).
                 const notaNum = parseNota(m.nota);
@@ -589,9 +603,10 @@ export function EstudioHomologacion({
                 if (notaNum != null && notaNum < notaMinima) {
                   avisos.push(`Nota ${notaNum} (mín. ${notaMinima})`);
                 }
-                if (dest && m.creditos != null && dest.creditos > m.creditos) {
+                if (destinos.length === 1 && dest && m.creditos != null && dest.creditos > m.creditos) {
                   avisos.push(`Créditos ${m.creditos}→${dest.creditos}`);
                 }
+                const primerVinculo = vinculosMateria[0];
                 return (
                   <Tarjeta
                     key={m.id}
@@ -602,12 +617,20 @@ export function EstudioHomologacion({
                     intensidadHoraria={m.intensidadHoraria}
                     nota={m.nota}
                     alerta={avisos.length > 0 ? avisos.join(" · ") : undefined}
-                    estado={v?.estado ?? null}
+                    similitud={primerVinculo?.similitud}
+                    razon={primerVinculo?.razon ?? undefined}
+                    estado={estadoAgregado}
                     vinculadoCon={
-                      dest ? { nombres: [dest.nombre], aprobado: v?.estado === "aprobado" } : undefined
+                      destinos.length > 0
+                        ? { nombres: destinos.map((d) => d.nombre), aprobado: todasAprobadas }
+                        : undefined
                     }
                     seleccionada={seleccionada}
-                    resaltada={destino != null && v?.asignaturaId === destino}
+                    resaltada={
+                      destinos.length > 0 && destino != null
+                        ? vinculosMateria.some((v) => v.asignaturaId === destino)
+                        : false
+                    }
                     tipo="origen"
                     onClick={cerrado ? undefined : () => alternarOrigen(m.id)}
                     onEditar={cerrado ? undefined : () => setEditorMateria({ modo: "editar", materia: m })}
@@ -688,17 +711,20 @@ export function EstudioHomologacion({
                   : origenes.length > 1
                     ? `${origenes.length} materias seleccionadas · elige la asignatura destino`
                     : sugerenciaPendiente
-                      ? "La IA sugirió esta homologación"
+                      ? vinculosOrigen.length > 1
+                        ? `La IA sugirió ${vinculosOrigen.length} homologaciones`
+                        : "La IA sugirió esta homologación"
                       : vinculoOrigen
-                        ? "Materia ya homologada"
+                        ? vinculosOrigen.length > 1
+                          ? `${vinculosOrigen.length} materias homologadas`
+                          : "Materia ya homologada"
                         : "Elige una asignatura destino"}
               </span>
-              {/* La justificación de la IA, para que el admin entienda el porqué de la sugerencia. */}
-              {/* La barra es SIEMPRE oscura: nada de variantes dark: aquí (un dark:text-slate-500
-                  la volvía ilegible sobre el fondo oscuro). */}
               {!destino && sugerenciaPendiente && vinculoOrigen?.razon && (
                 <span className="text-xs text-slate-400 block mt-0.5 max-w-md">
-                  {vinculoOrigen.razon}
+                  {vinculosOrigen.length > 1
+                    ? `${vinculosOrigen.length} vínculos pendientes por confirmar`
+                    : vinculoOrigen.razon}
                 </span>
               )}
             </div>

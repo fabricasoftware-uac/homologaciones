@@ -164,33 +164,52 @@ export function ResultadoHomologacion({
                 <span className="truncate text-right">Te vale en la Autónoma</span>
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {homologadas.map((h) => (
-                  <div
-                    key={h.id}
-                    className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-3 px-4 py-3 text-sm"
-                  >
-                    <span className="min-w-0 text-slate-500 dark:text-slate-400 truncate">
-                      {h.materia_origen?.nombre ?? "—"}
-                    </span>
-                    <span
-                      className={`flex items-center justify-center w-7 h-7 rounded-full shrink-0 ${
-                        verde ? "bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400" : "bg-blue-50 dark:bg-blue-500/10 text-blue-500 dark:text-blue-400"
-                      }`}
-                    >
-                      <ArrowRight className="w-4 h-4" />
-                    </span>
-                    <span className="min-w-0 text-right">
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 block truncate">
-                        {h.asignatura?.nombre ?? "—"}
+                {(() => {
+                  const grupos = new Map<string, HomologacionFila[]>();
+                  for (const h of homologadas) {
+                    const clave = h.materia_origen?.nombre ?? h.id;
+                    const grupo = grupos.get(clave) ?? [];
+                    grupo.push(h);
+                    grupos.set(clave, grupo);
+                  }
+                  const filas: { origen: string; destinos: { nombre: string; semestre: number; creditos: number }[] }[] = [];
+                  for (const [, grupo] of grupos) {
+                    filas.push({
+                      origen: grupo[0].materia_origen?.nombre ?? "—",
+                      destinos: grupo.map((h) => ({
+                        nombre: h.asignatura?.nombre ?? "—",
+                        semestre: h.asignatura?.semestre ?? 0,
+                        creditos: h.asignatura?.creditos ?? 0,
+                      })),
+                    });
+                  }
+                  return filas.map((f, fi) => (
+                    <div key={fi} className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-3 px-4 py-3 text-sm">
+                      <span className="min-w-0 text-slate-500 dark:text-slate-400 break-words">
+                        {f.origen}
                       </span>
-                      {h.asignatura && (
-                        <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                          {ordinal(h.asignatura.semestre)} semestre · {h.asignatura.creditos} cr
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                ))}
+                      <span
+                        className={`flex items-center justify-center w-7 h-7 rounded-full shrink-0 mt-0.5 ${
+                          verde ? "bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400" : "bg-blue-50 dark:bg-blue-500/10 text-blue-500 dark:text-blue-400"
+                        }`}
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                      </span>
+                      <div className="min-w-0 text-right space-y-1">
+                        {f.destinos.map((d, di) => (
+                          <div key={di}>
+                            <span className="font-semibold text-slate-900 dark:text-slate-100 block truncate">
+                              {d.nombre}
+                            </span>
+                            <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                              {ordinal(d.semestre)} semestre · {d.creditos} cr
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                })()}
               </div>
             </section>
           )}

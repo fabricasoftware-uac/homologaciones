@@ -155,7 +155,7 @@ export async function procesarCaso(
     // responde, caemos en el algoritmo determinístico de créditos.
     const idsHomologadas = new Set(filasVinculo.map((f) => f.asignatura_id));
     semestreSugerido =
-      (await estimarSemestreConGemini(asignaturas, idsHomologadas)) ??
+      (await estimarSemestreConGemini(asignaturas, idsHomologadas, esSena)) ??
       estimarSemestre(asignaturas, idsHomologadas);
   }
 
@@ -296,6 +296,7 @@ async function buscarExtraccionPrevia(
 async function estimarSemestreConGemini(
   asignaturas: { id: string; nombre: string; creditos: number; semestre: number }[],
   homologadas: Set<string>,
+  esSena = false,
 ): Promise<number | null> {
   const numSemestres = asignaturas.reduce((max, a) => Math.max(max, a.semestre), 0);
   if (numSemestres === 0) return null;
@@ -322,11 +323,19 @@ async function estimarSemestreConGemini(
   }
   const texto = resumen.join("\n\n");
 
-  const sistema = `Eres un asesor académico experto en homologaciones universitarias en Colombia. Recibes un resumen del plan de estudios organizado por semestre, indicando qué asignaturas homologó el estudiante y cuáles NO. Tu tarea: estimar en qué semestre quedaría el estudiante. Reglas:
-- Sé FLEXIBLE: el estudiante puede saltarse un semestre si homologó UNA BUENA PARTE de sus créditos (no necesariamente todas las materias). Con ~60-70% de los créditos de un semestre cubiertos, normalmente puede avanzar.
-- Considera también las materias que NO homologó: si son pocas y no son prerrequisito de nada crítico, no deberían frenarlo.
-- El resultado es el PRIMER semestre que todavía le quedaría por cursar.
-- Responde ÚNICAMENTE un objeto JSON con esta forma: {"semestre": 1, "razon": "explicación breve en español"}`;
+  let sistema =
+    "Eres un asesor académico experto en homologaciones universitarias en Colombia. Recibes un resumen del plan de estudios organizado por semestre, indicando qué asignaturas homologó el estudiante y cuáles NO. Tu tarea: estimar en qué semestre quedaría el estudiante.\n\n" +
+    "Reglas:\n" +
+    "- El semestre estimado debe ser el PRIMER semestre donde las materias NO homologadas sean MAYORÍA (más del 50% sin cubrir).\n" +
+    "- Si un semestre tiene al menos un 50% de créditos homologados, el estudiante PUEDE saltarlo.\n" +
+    "- Mira el semestre MÁS ALTO que tenga materias homologadas: ese es el nivel alcanzado. El estudiante entra A ESE MAXIMO.\n" +
+    "- Ejemplo: si hay materias homologadas en semestres 1, 2, 3 y 4, el estudiante entra a semestre 4 aunque falten algunas sueltas en semestres anteriores.\n" +
+    "- Responde ÚNICAMENTE un objeto JSON con esta forma: {\"semestre\": 1, \"razon\": \"explicación breve en español\"}";
+
+  if (esSena) {
+    sistema +=
+      "\n\nORIGEN SENA: El estudiante viene del SENA con competencias, no materias. Las competencias SENA son AMPLIAS: una sola cubre contenido de VARIOS semestres universitarios (ej. una competencia de programación cubre materias de semestres 1 al 4). Por eso puede haber pocas materias homologadas en total pero distribuidas en muchos semestres. NO te fijes en el porcentaje de créditos: mira en qué SEMESTRE está la materia homologada MÁS AVANZADA. Si hay materias homologadas en semestre 5, el estudiante está al menos en nivel 5, sin importar cuántas materias de semestres anteriores le falten.";
+  }
 
   const contenido =
     (await llamarGroq(
