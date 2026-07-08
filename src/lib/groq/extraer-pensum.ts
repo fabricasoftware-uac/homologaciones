@@ -32,9 +32,9 @@ Lee las imágenes y extrae TODAS las asignaturas del plan. Para cada una: nombre
 No inventes asignaturas. Ignora encabezados, totales y notas al pie. ${FORMA}`;
 
 // Cuántas páginas recorremos por visión. Va UNA página por request (el modelo admite máx 3 imágenes y
-// varias páginas grandes juntas exceden el límite de tokens/min), así que esto no es imágenes-por-
-// llamada sino páginas totales. 8 cubre de sobra un plan de estudios.
-const MAX_PAGINAS_VISION = 8;
+// varias páginas grandes juntas exceden el límite de tokens/min). Un pensum de 10 semestres pueden ser
+// 15-20 páginas con formato institucional; 20 cubre cualquier plan de estudios colombiano.
+const MAX_PAGINAS_VISION = 20;
 
 function aEnteroPositivoONull(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === "") return null;
@@ -76,21 +76,22 @@ function parsearAsignaturas(contenido: string | null): AsignaturaExtraida[] {
 
 // Camino normal: PDF con texto.
 export async function extraerAsignaturasDePensum(texto: string): Promise<AsignaturaExtraida[]> {
-  const recorte = texto.slice(0, 12000); // un plan completo cabe de sobra; margen para el TPM del tier
+  // 25000 chars cubre ~10 semestres con ~60 asignaturas (típico de un pensum colombiano).
+  const recorte = texto.slice(0, 25000);
   const contenido =
     (await llamarGroq(
       [
         { role: "system", content: SISTEMA },
         { role: "user", content: recorte },
       ],
-      { json: true },
+      { json: true, maxTokens: 8192 },
     )) ??
     (await llamarGemini(
       [
         { role: "system", content: SISTEMA },
         { role: "user", content: recorte },
       ],
-      { json: true },
+      { json: true, maxTokens: 8192 },
     ));
   return parsearAsignaturas(contenido);
 }
