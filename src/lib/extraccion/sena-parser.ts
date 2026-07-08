@@ -155,14 +155,19 @@ export class SenaParser implements Extractor {
       const nota =
         marcas[k].evaluacion === "A" ? "Aprobado" : marcas[k].evaluacion === "D" ? "No aprobado" : marcas[k].evaluacion;
 
+      // Créditos aproximados: estándar colombiano 1 crédito ≈ 48 horas.
+      // La intensidad horaria real se conserva para trazabilidad.
+      const creditosAprox = Number.isFinite(marcas[k].ih) && marcas[k].ih > 0 ? Math.round(marcas[k].ih / 48) : null;
+
       unidades.push({
         nombre: `Competencia:\n${nombre}${raFormateado}`,
         codigo: null,
-        creditos: marcas[k].ih,
+        creditos: creditosAprox,
         nota,
         semestre_origen: null,
         tipo: "competencia",
         metadatos: { resultados_aprendizaje: ras },
+        intensidadHoraria: marcas[k].ih,
       });
     }
 

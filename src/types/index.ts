@@ -101,6 +101,7 @@ export type MateriaOrigen = {
   semestre_origen: number | null;
   tipo: string;
   metadatos: Record<string, unknown> | null;
+  intensidad_horaria: number | null;
 };
 
 // El emparejamiento materia_origen -> asignatura destino que propone la IA, con su % y estado.

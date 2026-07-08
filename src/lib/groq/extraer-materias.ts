@@ -11,6 +11,7 @@ export type MateriaExtraida = {
   semestre_origen: number | null;
   tipo?: string;
   metadatos?: Record<string, unknown> | null;
+  intensidadHoraria?: number | null;
 };
 
 const SISTEMA = `Eres un extractor de datos académicos. Recibes el TEXTO de un certificado de notas o historial académico universitario, donde las materias suelen venir agrupadas por semestre o periodo académico.

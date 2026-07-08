@@ -23,24 +23,16 @@ export interface Extractor {
 // componentes (sub-items: RAs, temas, unidades), y los metadatos originales.
 
 export type UnidadAcademicaNormalizada = {
-  /** Nombre limpio de la unidad (materia, competencia). */
   nombre: string;
-  /** Descripción enriquecida que alimenta al motor de matching IA. Incluye el
-   *  nombre y, si existen, los componentes (RAs, temas, etc.). */
   descripcion: string;
-  /** Componentes o sub-items: resultados de aprendizaje para SENA, temas o
-   *  unidades para materias universitarias. Es la lista estructurada, no va
-   *  duplicada en metadatos. */
   componentes: string[];
-  /** Texto consolidado para embeddings y búsqueda vectorial futura. Se construye
-   *  concatenando nombre + descripción + componentes. No se genera embedding
-   *  todavía, solo se prepara el texto. */
   textoEmbedding: string;
   creditos: number | null;
+  /** Horas originales del SENA. Los créditos son una conversión aproximada (round(IH / 48)). */
+  intensidadHoraria: number | null;
   nota: string | null;
   semestre: number | null;
   tipo: string;
-  /** Solo información sin esquema definido. Los componentes NO van aquí. */
   metadatos: Record<string, unknown> | null;
 };
 

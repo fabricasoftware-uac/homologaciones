@@ -78,7 +78,7 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
     await Promise.all([
       supabase
         .from("materia_origen")
-        .select("id, codigo, nombre, creditos, nota, semestre_origen")
+        .select("id, codigo, nombre, creditos, intensidad_horaria, nota, semestre_origen, tipo")
         .eq("caso_id", params.id)
         .order("semestre_origen", { nullsFirst: false }),
       supabase
@@ -98,16 +98,20 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
       codigo: string | null;
       nombre: string;
       creditos: number | null;
+      intensidad_horaria: number | null;
       nota: string | null;
       semestre_origen: number | null;
+      tipo: string | null;
     }[]
   ).map((m) => ({
     id: m.id,
     codigo: m.codigo,
     nombre: m.nombre,
     creditos: m.creditos,
+    intensidadHoraria: m.intensidad_horaria,
     nota: m.nota,
     semestre: m.semestre_origen,
+    tipo: m.tipo,
   }));
 
   const asignaturas: AsignaturaStudio[] = (asignaturasData ?? []) as unknown as AsignaturaStudio[];

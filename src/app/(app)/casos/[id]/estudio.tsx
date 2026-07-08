@@ -50,8 +50,10 @@ export type MateriaStudio = {
   codigo: string | null;
   nombre: string;
   creditos: number | null;
+  intensidadHoraria: number | null;
   nota: string | null;
   semestre: number | null;
+  tipo: string | null;
 };
 export type AsignaturaStudio = {
   id: string;
@@ -434,6 +436,11 @@ export function EstudioHomologacion({
                   <label htmlFor="sem-final" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
                     Semestre
                   </label>
+                  {caso.semestreSugerido != null && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                      Recomendación de la IA: semestre {caso.semestreSugerido}
+                    </p>
+                  )}
                   <input
                     id="sem-final"
                     type="number"
@@ -592,6 +599,7 @@ export function EstudioHomologacion({
                     codigo={m.codigo}
                     nombre={m.nombre}
                     creditos={m.creditos}
+                    intensidadHoraria={m.intensidadHoraria}
                     nota={m.nota}
                     alerta={avisos.length > 0 ? avisos.join(" · ") : undefined}
                     estado={v?.estado ?? null}
@@ -919,6 +927,7 @@ function Tarjeta({
   codigo,
   nombre,
   creditos,
+  intensidadHoraria,
   nota,
   similitud,
   razon,
@@ -936,6 +945,7 @@ function Tarjeta({
   codigo: string | null;
   nombre: string;
   creditos: number | null;
+  intensidadHoraria?: number | null;
   nota: string | null;
   similitud?: number;
   razon?: string;
@@ -1063,6 +1073,11 @@ function Tarjeta({
       <h3 className="font-bold text-sm leading-snug text-slate-800 dark:text-slate-100">{nombre}</h3>
       <div className="flex items-center gap-2 mt-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
         {creditos != null && <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{creditos} CR</span>}
+        {intensidadHoraria != null && (
+          <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[10px]" title="Intensidad horaria original del SENA">
+            {intensidadHoraria}h
+          </span>
+        )}
         {nota && (
           <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded ml-auto">
             Nota {nota}

@@ -105,10 +105,10 @@ export async function procesarCaso(
     semestre_origen: u.semestre,
     tipo: u.tipo,
     metadatos: u.metadatos,
+    intensidad_horaria: u.intensidadHoraria,
     descripcion: u.descripcion,
     componentes: u.componentes,
     texto_embedding: u.textoEmbedding,
-    // pgvector acepta el literal de texto "[...]"; JSON.stringify de un number[] produce justo eso.
     embedding: embsUnidades[idx] ? JSON.stringify(embsUnidades[idx]) : null,
   }));
 
@@ -233,12 +233,13 @@ async function buscarExtraccionPrevia(
     const { data: mats } = await supabase
       .from("materia_origen")
       .select(
-        "nombre, creditos, nota, semestre_origen, tipo, metadatos, descripcion, componentes, texto_embedding, embedding",
+        "nombre, creditos, intensidad_horaria, nota, semestre_origen, tipo, metadatos, descripcion, componentes, texto_embedding, embedding",
       )
       .eq("caso_id", filaPrev.id);
     const filas = (mats ?? []) as {
       nombre: string;
       creditos: number | null;
+      intensidad_horaria: number | null;
       nota: string | null;
       semestre_origen: number | null;
       tipo: string | null;
@@ -256,6 +257,7 @@ async function buscarExtraccionPrevia(
       componentes: r.componentes ?? [],
       textoEmbedding: r.texto_embedding ?? r.nombre,
       creditos: r.creditos,
+      intensidadHoraria: r.intensidad_horaria,
       nota: r.nota,
       semestre: r.semestre_origen,
       tipo: r.tipo ?? "materia",
@@ -321,8 +323,8 @@ async function estimarSemestreConGemini(
   const texto = resumen.join("\n\n");
 
   const sistema = `Eres un asesor académico experto en homologaciones universitarias en Colombia. Recibes un resumen del plan de estudios organizado por semestre, indicando qué asignaturas homologó el estudiante y cuáles NO. Tu tarea: estimar en qué semestre quedaría el estudiante. Reglas:
-- El estudiante "se salta" un semestre solo si homologó TODAS o CASI TODAS las asignaturas de ese semestre (y los anteriores).
-- Si homologó la mayoría pero le faltan 1 o 2 asignaturas clave de un semestre, normalmente NO se salta ese semestre completo.
+- Sé FLEXIBLE: el estudiante puede saltarse un semestre si homologó UNA BUENA PARTE de sus créditos (no necesariamente todas las materias). Con ~60-70% de los créditos de un semestre cubiertos, normalmente puede avanzar.
+- Considera también las materias que NO homologó: si son pocas y no son prerrequisito de nada crítico, no deberían frenarlo.
 - El resultado es el PRIMER semestre que todavía le quedaría por cursar.
 - Responde ÚNICAMENTE un objeto JSON con esta forma: {"semestre": 1, "razon": "explicación breve en español"}`;
 
