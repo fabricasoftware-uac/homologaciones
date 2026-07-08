@@ -74,26 +74,49 @@ function parsearAsignaturas(contenido: string | null): AsignaturaExtraida[] {
   }
 }
 
-// Camino normal: PDF con texto.
-export async function extraerAsignaturasDePensum(texto: string): Promise<AsignaturaExtraida[]> {
-  // 25000 chars cubre ~10 semestres con ~60 asignaturas (típico de un pensum colombiano).
-  const recorte = texto.slice(0, 25000);
-  const contenido =
-    (await llamarGroq(
-      [
-        { role: "system", content: SISTEMA },
-        { role: "user", content: recorte },
-      ],
-      { json: true, maxTokens: 8192 },
-    )) ??
-    (await llamarGemini(
-      [
-        { role: "system", content: SISTEMA },
-        { role: "user", content: recorte },
-      ],
-      { json: true, maxTokens: 8192 },
-    ));
-  return parsearAsignaturas(contenido);
+// Camino normal: PDF con texto. Para pensums largos (10+ semestres), troceamos el texto PÁGINA
+// POR PÁGINA y mandamos cada página a la IA por separado. Así cada llamada es pequeña (2-3 semestres
+// por página), el JSON mode no falla, y el output nunca se trunca. Al final juntamos y deduplicamos.
+export async function extraerAsignaturasDePensum(bytes: Uint8Array): Promise<AsignaturaExtraida[]> {
+  const pdf = await getDocumentProxy(bytes.slice());
+  const paginas = Math.min(pdf.numPages, MAX_PAGINAS_VISION);
+
+  const todas: AsignaturaExtraida[] = [];
+
+  for (let i = 1; i <= paginas; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const textoPagina = (content.items as { str?: string }[])
+      .filter((it) => typeof it.str === "string")
+      .map((it) => it.str!)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (textoPagina.length < 30) continue;
+
+    const contenido =
+      (await llamarGroq(
+        [
+          { role: "system", content: SISTEMA },
+          { role: "user", content: textoPagina.slice(0, 4000) },
+        ],
+        { json: true, maxTokens: 2048 },
+      )) ??
+      (await llamarGemini(
+        [
+          { role: "system", content: SISTEMA },
+          { role: "user", content: textoPagina.slice(0, 4000) },
+        ],
+        { json: true, maxTokens: 2048 },
+      ));
+
+    if (contenido === null) continue;
+    todas.push(...parsearAsignaturas(contenido));
+  }
+
+  if (todas.length === 0) throw new Error("No se detectaron asignaturas en ninguna página del pensum.");
+  return dedupeAsignaturas(todas);
 }
 
 // Quita asignaturas repetidas (mismo nombre + semestre), por si dos páginas solapan contenido.

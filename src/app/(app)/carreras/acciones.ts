@@ -3,12 +3,12 @@
 import { revalidatePath } from "next/cache";
 
 import { crearClienteServidor } from "@/lib/supabase/servidor";
-import { extraerTextoPdf } from "@/lib/pdf/extraer";
 import {
   extraerAsignaturasDePensum,
   extraerAsignaturasPorVision,
   type AsignaturaExtraida,
 } from "@/lib/groq/extraer-pensum";
+import { parsearPensum } from "@/lib/extraccion/pensum-parser";
 
 // Gestión del PDF del plan de estudios de cada carrera (solo admin; la RLS del bucket 'planes' y de
 // la tabla pensum lo autorizan).
@@ -66,17 +66,22 @@ async function regenerarAsignaturas(
   pensumId: string,
   bytes: Uint8Array,
 ): Promise<string> {
-  // 1) Por TEXTO (PDFs con capa de texto, lo normal).
-  let texto = "";
+  // 1) Parser determinístico posicional (0 tokens): funciona con el formato de dos columnas
+  //    (Semestre I-V a la izquierda, VI-X a la derecha) del pensum de la Autónoma del Cauca.
+  let asignaturas: AsignaturaExtraida[] = [];
   try {
-    texto = await extraerTextoPdf(bytes);
-  } catch {
-    texto = "";
+    asignaturas = await parsearPensum(bytes);
+  } catch (error) {
+    console.error("[pensum] Falló el parser determinístico, probando IA:", error);
   }
 
-  let asignaturas: AsignaturaExtraida[] = [];
-  if (texto.trim().length >= 30) {
-    asignaturas = await extraerAsignaturasDePensum(texto);
+  // 2) Fallback: IA por páginas para formatos no estándar.
+  if (asignaturas.length === 0) {
+    try {
+      asignaturas = await extraerAsignaturasDePensum(bytes);
+    } catch (error) {
+      console.error("[pensum] Falló la extracción por IA:", error);
+    }
   }
 
   // 2) Si el PDF no tiene texto (escaneo) o el texto no dio asignaturas, lo leemos por VISIÓN:
