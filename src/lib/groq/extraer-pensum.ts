@@ -19,11 +19,16 @@ export type AsignaturaExtraida = {
 const FORMA =
   'Responde ÚNICAMENTE un objeto JSON: {"asignaturas": [{"nombre": "...", "codigo": null, "creditos": 3, "semestre": 1}]}';
 
-const SISTEMA = `Eres un extractor de planes de estudio (pensum) universitarios. Recibes el TEXTO de un PDF con el plan de estudios de una carrera, donde las asignaturas vienen organizadas por SEMESTRE (o nivel/periodo) con sus créditos.
+const SISTEMA = `Eres un extractor de planes de estudio (pensum) universitarios. Recibes el TEXTO de un PDF con el plan de estudios de una carrera, reconstruido en orden visual: los campos de un mismo renglón van separados por " | " y puede venir dividido en secciones "--- COLUMNA N ---" o "--- PÁGINA N ---".
 
-Extrae TODAS las asignaturas del plan. Para cada una: nombre (obligatorio), codigo (institucional si aparece; si no, null), creditos (entero; si no aparece, 0), semestre (número del semestre al que pertenece, OBLIGATORIO).
+Cómo leer el semestre de cada asignatura:
+- Si hay un encabezado explícito ("Semestre III", "Nivel 2", "Periodo 4", o números romanos), úsalo para todas las asignaturas de ese bloque.
+- En planes en cuadrícula, cada bloque que empieza con "Materia | Créditos" (o similar) es UN semestre, y su número suele aparecer como un dígito suelto (1-12) justo antes, dentro o después del bloque.
+- Los planes suelen tener entre 8 y 12 semestres: recorre TODO el texto hasta el final y no te detengas en los primeros bloques.
 
-No inventes asignaturas. Ignora encabezados, totales, créditos totales y notas al pie. ${FORMA}`;
+Extrae TODAS las asignaturas del plan. Para cada una: nombre (obligatorio; si el nombre quedó partido en dos renglones, únelo), codigo (institucional si aparece; si no, null), creditos (entero; si no aparece, 0), semestre (número del semestre al que pertenece, OBLIGATORIO).
+
+No inventes asignaturas. Ignora encabezados, filas de "Total", créditos totales del programa y notas al pie. ${FORMA}`;
 
 const SISTEMA_VISION = `Eres un extractor de planes de estudio (pensum) universitarios. Recibes una o varias IMÁGENES de las páginas de un PDF con el plan de estudios de una carrera, donde las asignaturas vienen organizadas por SEMESTRE con sus créditos.
 
@@ -33,8 +38,16 @@ No inventes asignaturas. Ignora encabezados, totales y notas al pie. ${FORMA}`;
 
 // Cuántas páginas recorremos por visión. Va UNA página por request (el modelo admite máx 3 imágenes y
 // varias páginas grandes juntas exceden el límite de tokens/min), así que esto no es imágenes-por-
-// llamada sino páginas totales. 8 cubre de sobra un plan de estudios.
-const MAX_PAGINAS_VISION = 8;
+// llamada sino páginas totales. 20 = paridad con la extracción de certificados.
+const MAX_PAGINAS_VISION = 20;
+
+// Tamaño máximo de cada trozo de texto que se envía a la IA. Un plan grande se trocea por secciones
+// (columnas/páginas del texto estructurado) y se hace una llamada por trozo; los resultados se
+// fusionan y deduplican. Así ningún semestre queda fuera por truncamiento.
+const LIMITE_TROZO = 10000;
+
+// Tokens de salida explícitos: sin esto algunos modelos truncan la lista JSON de un plan grande.
+const MAX_TOKENS_SALIDA = 8192;
 
 function aEnteroPositivoONull(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === "") return null;
@@ -74,32 +87,87 @@ function parsearAsignaturas(contenido: string | null): AsignaturaExtraida[] {
   }
 }
 
-// Camino normal: PDF con texto.
-export async function extraerAsignaturasDePensum(texto: string): Promise<AsignaturaExtraida[]> {
-  const recorte = texto.slice(0, 12000); // un plan completo cabe de sobra; margen para el TPM del tier
+// Divide el texto en trozos de máximo LIMITE_TROZO caracteres, cortando por los separadores de
+// sección del texto estructurado ("--- COLUMNA/PÁGINA N ---") para no partir un semestre por la
+// mitad. Si una sección sola excede el límite, se parte por saltos de línea.
+function trocearTexto(texto: string): string[] {
+  if (texto.length <= LIMITE_TROZO) return [texto];
+
+  const secciones = texto.split(/\n\n(?=--- )/);
+  const trozos: string[] = [];
+  let actual = "";
+  for (const seccion of secciones) {
+    const bloques = seccion.length > LIMITE_TROZO ? partirPorLineas(seccion) : [seccion];
+    for (const bloque of bloques) {
+      if (actual && actual.length + bloque.length + 2 > LIMITE_TROZO) {
+        trozos.push(actual);
+        actual = "";
+      }
+      actual = actual ? `${actual}\n\n${bloque}` : bloque;
+    }
+  }
+  if (actual) trozos.push(actual);
+  return trozos;
+}
+
+function partirPorLineas(seccion: string): string[] {
+  const partes: string[] = [];
+  const lineas = seccion.split("\n");
+  let actual = "";
+  for (const linea of lineas) {
+    if (actual && actual.length + linea.length + 1 > LIMITE_TROZO) {
+      partes.push(actual);
+      actual = "";
+    }
+    actual = actual ? `${actual}\n${linea}` : linea;
+  }
+  if (actual) partes.push(actual);
+  return partes;
+}
+
+async function extraerDeTrozo(trozo: string): Promise<AsignaturaExtraida[]> {
+  const mensajes = [
+    { role: "system" as const, content: SISTEMA },
+    { role: "user" as const, content: trozo },
+  ];
   const contenido =
-    (await llamarGroq(
-      [
-        { role: "system", content: SISTEMA },
-        { role: "user", content: recorte },
-      ],
-      { json: true },
-    )) ??
-    (await llamarGemini(
-      [
-        { role: "system", content: SISTEMA },
-        { role: "user", content: recorte },
-      ],
-      { json: true },
-    ));
+    (await llamarGroq(mensajes, { json: true, maxTokens: MAX_TOKENS_SALIDA })) ??
+    (await llamarGemini(mensajes, { json: true, maxTokens: MAX_TOKENS_SALIDA }));
   return parsearAsignaturas(contenido);
 }
 
-// Quita asignaturas repetidas (mismo nombre + semestre), por si dos páginas solapan contenido.
+// Camino normal: PDF con texto. Trocea el texto (sin truncarlo), extrae cada trozo por separado y
+// fusiona los resultados. Antes se recortaba a 12k chars y los semestres finales de planes grandes
+// nunca llegaban al modelo.
+export async function extraerAsignaturasDePensum(texto: string): Promise<AsignaturaExtraida[]> {
+  const trozos = trocearTexto(texto);
+  const asignaturas: AsignaturaExtraida[] = [];
+  for (const [i, trozo] of trozos.entries()) {
+    const parciales = await extraerDeTrozo(trozo);
+    if (trozos.length > 1) {
+      console.log(`[pensum] trozo ${i + 1}/${trozos.length}: ${parciales.length} asignaturas`);
+    }
+    asignaturas.push(...parciales);
+  }
+  return dedupeAsignaturas(asignaturas);
+}
+
+// Clave de comparación tolerante: minúsculas, sin tildes, espacios colapsados. El rango va con
+// escapes \u (los diacríticos combinantes literales corrompen archivos, ya nos pasó).
+function claveNombre(nombre: string): string {
+  return nombre
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Quita asignaturas repetidas (mismo nombre + semestre), por si dos trozos/páginas solapan contenido.
 function dedupeAsignaturas(lista: AsignaturaExtraida[]): AsignaturaExtraida[] {
   const vistas = new Set<string>();
   return lista.filter((a) => {
-    const clave = `${a.nombre.toLowerCase().trim()}|${a.semestre}`;
+    const clave = `${claveNombre(a.nombre)}|${a.semestre}`;
     if (vistas.has(clave)) return false;
     vistas.add(clave);
     return true;

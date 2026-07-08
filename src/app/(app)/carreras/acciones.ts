@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { crearClienteServidor } from "@/lib/supabase/servidor";
-import { extraerTextoPdf } from "@/lib/pdf/extraer";
+import { extraerTextoEstructurado } from "@/lib/pdf/extraer-estructurado";
 import {
   extraerAsignaturasDePensum,
   extraerAsignaturasPorVision,
@@ -66,10 +66,13 @@ async function regenerarAsignaturas(
   pensumId: string,
   bytes: Uint8Array,
 ): Promise<string> {
-  // 1) Por TEXTO (PDFs con capa de texto, lo normal).
+  // 1) Por TEXTO (PDFs con capa de texto, lo normal). El texto va RECONSTRUIDO en orden visual
+  // (renglones y columnas por coordenadas): los pensums en cuadrícula llegaban revueltos a la IA y
+  // perdía semestres enteros.
   let texto = "";
   try {
-    texto = await extraerTextoPdf(bytes);
+    const estructurado = await extraerTextoEstructurado(bytes);
+    texto = estructurado.texto;
   } catch {
     texto = "";
   }
@@ -78,6 +81,8 @@ async function regenerarAsignaturas(
   if (texto.trim().length >= 30) {
     asignaturas = await extraerAsignaturasDePensum(texto);
   }
+  const semestres = new Set(asignaturas.map((a) => a.semestre)).size;
+  console.log(`[pensum] extracción por texto: ${asignaturas.length} asignaturas en ${semestres} semestres`);
 
   // 2) Si el PDF no tiene texto (escaneo) o el texto no dio asignaturas, lo leemos por VISIÓN:
   // renderizamos las páginas a imagen y un modelo multimodal las interpreta (como un OCR con IA).
