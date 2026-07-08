@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { emparejarMaterias } from "@/lib/groq/homologar";
+import { emparejarMaterias, SISTEMA_SENA } from "@/lib/groq/homologar";
 import type { UnidadAcademicaNormalizada } from "@/lib/extraccion";
 
 // ── FASE 7 · Motor de decisión en cascada ──
@@ -146,7 +146,7 @@ export async function decidirVinculos(args: {
       const { data } = await supabase.rpc("buscar_asignaturas_similares", {
         p_pensum_id: pensumId,
         p_embedding: JSON.stringify(emb),
-        p_top_n: TOP_N_CANDIDATOS,
+        p_top_n: unidades[i].tipo === "competencia" ? 30 : TOP_N_CANDIDATOS,
       });
       const candidatas = (((data as { id: string }[] | null) ?? [])
         .map((r) => porId.get(r.id))
@@ -190,7 +190,8 @@ export async function decidirVinculos(args: {
           nota: unidades[idx].nota,
         })),
         union.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
-        true, // múltiples por origen dentro del lote: la restricción real (SENA o no) va en el greedy global
+        true, // múltiples por origen dentro del lote
+        esSena ? SISTEMA_SENA : undefined,
       );
 
       const porUnidad = new Map<number, DecisionUnidad>();
@@ -225,6 +226,7 @@ export async function decidirVinculos(args: {
       })),
       asignaturas.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
       esSena,
+      esSena ? SISTEMA_SENA : undefined,
     );
     const porUnidad = new Map<number, DecisionUnidad>();
     for (const v of vinculos) {

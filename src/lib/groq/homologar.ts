@@ -39,6 +39,10 @@ Reglas:
 Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"vinculos": [{"materia": 0, "asignatura": 0, "similitud": 0, "razon": ""}]}`;
 
+// Extensión para competencias del SENA: hereda el prompt base y agrega instrucciones
+// específicas para que el modelo entienda las diferencias de las competencias SENA.
+export const SISTEMA_SENA = SISTEMA + `\n\nORIGEN SENA: Las materias de origen son COMPETENCIAS del SENA (Servicio Nacional de Aprendizaje), no materias universitarias tradicionales. Cada competencia es AMPLIA, incluye múltiples Resultados de Aprendizaje (listados en el campo "nombre") y tiene una intensidad horaria alta. Por su amplitud, una competencia del SENA PUEDE Y DEBE cubrir VARIAS asignaturas universitarias del plan destino —no solo una— si su contenido y resultados de aprendizaje abarcan los temas de cada una. Ejemplos típicos: una competencia de programación del SENA cubre Programación I, II, III y Estructuras de Datos; una competencia de inglés cubre todos los niveles de lengua extranjera; una competencia de bases de datos cubre Bases de Datos I y II. Analiza cada asignatura candidata contra la competencia COMPLETA (nombre + resultados de aprendizaje) y selecciona TODAS las que tengan cobertura suficiente, con similitud >= 55.`;
+
 // ── FASE 7 · Emparejamiento PER-UNIDAD ──
 //
 // En vez del mega-prompt (todas las materias × todas las asignaturas, origen de los 429 y de los
@@ -121,8 +125,11 @@ export async function emparejarMaterias(
   origen: MateriaParaEmparejar[],
   destino: AsignaturaParaEmparejar[],
   permitirMultiplesPorOrigen = false,
+  sistema?: string,
 ): Promise<VinculoSugerido[]> {
   if (origen.length === 0 || destino.length === 0) return [];
+
+  const promptSistema = sistema ?? SISTEMA;
 
   const payload = {
     materias_origen: origen.map((m, i) => ({
@@ -144,14 +151,14 @@ export async function emparejarMaterias(
   const contenido =
     (await llamarGroq(
       [
-        { role: "system", content: SISTEMA },
+        { role: "system", content: promptSistema },
         { role: "user", content: JSON.stringify(payload) },
       ],
       { json: true, modelos: MODELOS_LIGEROS },
     )) ??
     (await llamarGemini(
       [
-        { role: "system", content: SISTEMA },
+        { role: "system", content: promptSistema },
         { role: "user", content: JSON.stringify(payload) },
       ],
       { json: true, modelos: MODELOS_LIGEROS_GEMINI },
