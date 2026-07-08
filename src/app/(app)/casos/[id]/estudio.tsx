@@ -143,7 +143,11 @@ export function EstudioHomologacion({
   // pueden marcar 2+ para vincularlas JUNTAS a una misma asignatura destino (homologación N→1).
   const [origenes, setOrigenes] = useState<string[]>([]);
   const [multiple, setMultiple] = useState(false);
-  const [destino, setDestino] = useState<string | null>(null); // asignatura seleccionada
+  // Asignaturas destino seleccionadas. Con el modo múltiple también se pueden marcar VARIAS del
+  // lado destino (1 materia → N asignaturas, el caso típico SENA). Regla: solo un lado puede tener
+  // varias a la vez (M×N sería ambiguo).
+  const [destinos, setDestinos] = useState<string[]>([]);
+  const destino = destinos.length === 1 ? destinos[0] : null; // compat con el flujo simple
   const [columnaMovil, setColumnaMovil] = useState<"origen" | "destino">("origen"); // pestaña activa en móvil
   const [semestre, setSemestre] = useState(
     caso.semestreSugerido != null ? String(caso.semestreSugerido) : "",
@@ -201,51 +205,93 @@ export function EstudioHomologacion({
 
   function limpiar() {
     setOrigenes([]);
-    setDestino(null);
+    setDestinos([]);
   }
 
   // Clic en una materia de origen: en modo normal reemplaza la selección; en modo múltiple la
-  // agrega/quita del grupo.
+  // agrega/quita del grupo. Solo un lado puede tener varias: si el destino ya tiene 2+, este lado
+  // se queda en 1.
   function alternarOrigen(id: string) {
     setOrigenes((prev) => {
-      if (multiple) return prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      if (multiple) {
+        if (prev.includes(id)) return prev.filter((x) => x !== id);
+        if (prev.length >= 1 && destinos.length > 1) {
+          sileo.info({
+            title: "Solo un lado puede tener varias",
+            description: "Ya marcaste varias asignaturas destino: deja UNA materia de origen.",
+          });
+          return prev;
+        }
+        return [...prev, id];
+      }
+      return prev.length === 1 && prev[0] === id ? [] : [id];
+    });
+  }
+
+  // Clic en una asignatura destino: igual que el origen, pero espejado (1 materia → N asignaturas,
+  // el caso típico de una competencia SENA que cubre varias).
+  function alternarDestino(id: string) {
+    setDestinos((prev) => {
+      if (multiple) {
+        if (prev.includes(id)) return prev.filter((x) => x !== id);
+        if (prev.length >= 1 && origenes.length > 1) {
+          sileo.info({
+            title: "Solo un lado puede tener varias",
+            description: "Ya marcaste varias materias de origen: deja UNA asignatura destino.",
+          });
+          return prev;
+        }
+        return [...prev, id];
+      }
       return prev.length === 1 && prev[0] === id ? [] : [id];
     });
   }
 
   function alternarMultiple() {
     setMultiple((activo) => {
-      // Al apagar el modo, conservamos solo la primera seleccionada (volvemos al flujo simple).
-      if (activo) setOrigenes((prev) => prev.slice(0, 1));
+      // Al apagar el modo, conservamos solo la primera seleccionada de cada lado (flujo simple).
+      if (activo) {
+        setOrigenes((prev) => prev.slice(0, 1));
+        setDestinos((prev) => prev.slice(0, 1));
+      }
       return !activo;
     });
   }
 
-  // Vincula TODAS las materias seleccionadas con la asignatura destino (1 o varias → 1). Si alguna
-  // ya tenía vínculo, se re-vincula (mismo comportamiento del flujo simple).
+  // Vincula la selección en cualquiera de las dos direcciones: N materias → 1 asignatura (Cálculo
+  // I + II → Cálculo) o 1 materia → N asignaturas (una competencia SENA cubre varias). El guard de
+  // selección garantiza que al menos un lado tiene exactamente 1.
   function hacerVincular() {
-    if (origenes.length === 0 || !destino) return;
-    const seleccionadas = [...origenes];
+    if (origenes.length === 0 || destinos.length === 0) return;
+    if (origenes.length > 1 && destinos.length > 1) return; // no debería pasar (guard de selección)
+    // Parejas (materia, asignatura): el lado de 1 se cruza con cada elemento del lado de N.
+    const parejas =
+      destinos.length === 1
+        ? origenes.map((materiaId) => ({ materiaId, asignaturaId: destinos[0] }))
+        : destinos.map((asignaturaId) => ({ materiaId: origenes[0], asignaturaId }));
     iniciar(async () => {
-      for (const materiaId of seleccionadas) {
-        // Si ya hay vínculo con ESTE destino, se aprueba ese; si la materia tiene un único vínculo a
-        // otra asignatura, se re-vincula (reemplazo, flujo clásico 1:1); si tiene varios (SENA 1:N),
-        // se AGREGA uno nuevo sin tocar los demás.
+      for (const { materiaId, asignaturaId } of parejas) {
+        // Si ya hay vínculo con ESE destino, se aprueba ese. Reemplazo (re-vincular el único vínculo
+        // existente hacia otra asignatura) SOLO en el flujo 1→1 clásico; al agregar N destinos la
+        // intención es SUMAR, no pisar lo que había.
         const existentes = vinculosDeMateria(materiaId);
-        const mismoDestino = existentes.find((v) => v.asignaturaId === destino);
-        const reemplazable = !mismoDestino && existentes.length === 1 ? existentes[0] : null;
+        const mismoDestino = existentes.find((v) => v.asignaturaId === asignaturaId);
+        const reemplazable =
+          !mismoDestino && parejas.length === 1 && existentes.length === 1 ? existentes[0] : null;
         const fd = new FormData();
         fd.set("casoId", caso.id);
         fd.set("materiaOrigenId", materiaId);
-        fd.set("asignaturaId", destino);
+        fd.set("asignaturaId", asignaturaId);
         fd.set("vinculoId", (mismoDestino ?? reemplazable)?.id ?? "");
         await vincular(fd);
       }
       sileo.success({
         title:
-          seleccionadas.length > 1
-            ? `${seleccionadas.length} materias vinculadas a la asignatura`
-            : "Materias vinculadas",
+          destinos.length > 1
+            ? `Materia vinculada a ${destinos.length} asignaturas`
+            : origenes.length > 1
+              ? `${origenes.length} materias vinculadas a la asignatura`
+              : "Materias vinculadas",
       });
       limpiar();
     });
@@ -576,7 +622,7 @@ export function EstudioHomologacion({
               <button
                 type="button"
                 onClick={alternarMultiple}
-                title="Marca varias materias y vincúlalas juntas a una misma asignatura"
+                title="Marca varias tarjetas de UN lado (varias materias → una asignatura, o una materia → varias asignaturas) y vincúlalas de un tiro"
                 className={clsx(
                   "flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold rounded-xl px-3 py-2.5 border-2 transition-colors",
                   multiple
@@ -657,7 +703,7 @@ export function EstudioHomologacion({
                 // Una asignatura puede recibir VARIAS materias de origen (homologación 2→1):
                 // el estado y el pie de la tarjeta reflejan el conjunto, no solo la primera.
                 const vs = vinculosDeAsignatura(a.id);
-                const seleccionada = destino === a.id;
+                const seleccionada = destinos.includes(a.id);
                 const aprobada = vs.some((v) => v.estado === "aprobado");
                 const pendiente = vs.find((v) => v.estado === "pendiente");
                 const nombresOrigen = vs
@@ -683,7 +729,7 @@ export function EstudioHomologacion({
                     seleccionada={seleccionada}
                     resaltada={origen != null && vs.some((v) => v.materiaOrigenId === origen)}
                     tipo="destino"
-                    onClick={cerrado ? undefined : () => setDestino(seleccionada ? null : a.id)}
+                    onClick={cerrado ? undefined : () => alternarDestino(a.id)}
                   />
                 );
               })}
@@ -695,7 +741,7 @@ export function EstudioHomologacion({
 
       {/* Barra flotante de vinculación */}
       <AnimatePresence>
-        {!cerrado && origenes.length > 0 && (
+        {!cerrado && (origenes.length > 0 || destinos.length > 0) && (
           <motion.div
             initial={{ y: 80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -704,38 +750,46 @@ export function EstudioHomologacion({
           >
             <div className="text-center md:text-left min-w-0">
               <span className="text-sm font-medium block">
-                {destino
-                  ? origenes.length > 1
-                    ? `Vincular las ${origenes.length} materias con la asignatura`
-                    : "Vincular la materia con la asignatura"
-                  : origenes.length > 1
-                    ? `${origenes.length} materias seleccionadas · elige la asignatura destino`
-                    : sugerenciaPendiente
-                      ? pendientesOrigen.length > 1
-                        ? `La IA sugirió ${pendientesOrigen.length} homologaciones`
-                        : "La IA sugirió esta homologación"
-                      : vinculosOrigen.length > 0
-                        ? "Materia ya homologada"
-                        : "Elige una asignatura destino"}
+                {origenes.length > 0 && destinos.length > 0
+                  ? destinos.length > 1
+                    ? `Vincular la materia con las ${destinos.length} asignaturas`
+                    : origenes.length > 1
+                      ? `Vincular las ${origenes.length} materias con la asignatura`
+                      : "Vincular la materia con la asignatura"
+                  : origenes.length === 0
+                    ? `${destinos.length} asignatura${destinos.length > 1 ? "s" : ""} seleccionada${destinos.length > 1 ? "s" : ""} · elige la materia de origen`
+                    : origenes.length > 1
+                      ? `${origenes.length} materias seleccionadas · elige la asignatura destino`
+                      : sugerenciaPendiente
+                        ? pendientesOrigen.length > 1
+                          ? `La IA sugirió ${pendientesOrigen.length} homologaciones`
+                          : "La IA sugirió esta homologación"
+                        : vinculosOrigen.length > 0
+                          ? "Materia ya homologada"
+                          : "Elige una asignatura destino"}
               </span>
               {/* La justificación de la IA, para que el admin entienda el porqué de la sugerencia. */}
               {/* La barra es SIEMPRE oscura: nada de variantes dark: aquí (un dark:text-slate-500
                   la volvía ilegible sobre el fondo oscuro). */}
-              {!destino && sugerenciaPendiente && pendientesOrigen[0]?.razon && (
+              {destinos.length === 0 && sugerenciaPendiente && pendientesOrigen[0]?.razon && (
                 <span className="text-xs text-slate-400 block mt-0.5 max-w-md">
                   {pendientesOrigen[0].razon}
                 </span>
               )}
             </div>
             <div className="flex flex-wrap items-center justify-center md:justify-end gap-2">
-              {destino ? (
+              {origenes.length > 0 && destinos.length > 0 ? (
                 <button
                   onClick={hacerVincular}
                   disabled={pendiente}
                   className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
                 >
                   <LinkIcon className="w-4 h-4" />
-                  {origenes.length > 1 ? `Vincular ${origenes.length} materias` : "Vincular"}
+                  {destinos.length > 1
+                    ? `Vincular ${destinos.length} asignaturas`
+                    : origenes.length > 1
+                      ? `Vincular ${origenes.length} materias`
+                      : "Vincular"}
                 </button>
               ) : (
                 <>
