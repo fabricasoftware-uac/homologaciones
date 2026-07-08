@@ -78,7 +78,7 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
     await Promise.all([
       supabase
         .from("materia_origen")
-        .select("id, codigo, nombre, creditos, nota, semestre_origen")
+        .select("id, codigo, nombre, creditos, nota, semestre_origen, tipo, metadatos")
         .eq("caso_id", params.id)
         .order("semestre_origen", { nullsFirst: false }),
       supabase
@@ -100,15 +100,23 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
       creditos: number | null;
       nota: string | null;
       semestre_origen: number | null;
+      tipo: string | null;
+      metadatos: Record<string, unknown> | null;
     }[]
-  ).map((m) => ({
-    id: m.id,
-    codigo: m.codigo,
-    nombre: m.nombre,
-    creditos: m.creditos,
-    nota: m.nota,
-    semestre: m.semestre_origen,
-  }));
+  ).map((m) => {
+    // Competencias SENA: el normalizador ya convirtió horas→créditos (÷48) y dejó las horas
+    // originales en metadatos.intensidad_horaria; se exponen para que el chip muestre "N h ≈ M cr".
+    const ih = Number(m.metadatos?.intensidad_horaria);
+    return {
+      id: m.id,
+      codigo: m.codigo,
+      nombre: m.nombre,
+      creditos: m.creditos,
+      nota: m.nota,
+      semestre: m.semestre_origen,
+      horas: m.tipo === "competencia" && Number.isFinite(ih) && ih > 0 ? ih : null,
+    };
+  });
 
   const asignaturas: AsignaturaStudio[] = (asignaturasData ?? []) as unknown as AsignaturaStudio[];
 

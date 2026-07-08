@@ -13,7 +13,9 @@ import type { EstadoCaso } from "@/types";
 import { EscuchaCaso } from "@/components/escucha-caso";
 import {
   ResultadoHomologacion,
+  aFilaHomologacion,
   type HomologacionFila,
+  type HomologacionFilaCruda,
 } from "@/components/resultado-homologacion";
 
 // Detalle de una homologación, del lado del ESTUDIANTE. Es de solo lectura: la RLS "Ver mis casos"
@@ -64,12 +66,12 @@ export default async function PaginaDetalleHomologacion({ params }: { params: { 
     let consulta = supabase
       .from("vinculo")
       .select(
-        "id, materia_origen:materia_origen_id (nombre, creditos), asignatura:asignatura_id (nombre, semestre, creditos)",
+        "id, materia_origen:materia_origen_id (nombre, creditos, tipo, metadatos), asignatura:asignatura_id (nombre, semestre, creditos)",
       )
       .eq("caso_id", params.id);
     consulta = aprobado ? consulta.eq("estado", "aprobado") : consulta.neq("estado", "rechazado");
     const { data } = await consulta;
-    homologadas = (data ?? []) as unknown as HomologacionFila[];
+    homologadas = ((data ?? []) as unknown as HomologacionFilaCruda[]).map(aFilaHomologacion);
   }
 
   // Ordenamos por semestre de la asignatura destino (y luego por nombre) para que el resumen se lea

@@ -13,7 +13,9 @@ import { Logotipo } from "@/components/logotipo";
 import type { EstadoCaso } from "@/types";
 import {
   ResultadoHomologacion,
+  aFilaHomologacion,
   type HomologacionFila,
+  type HomologacionFilaCruda,
 } from "@/components/resultado-homologacion";
 
 export const metadata: Metadata = {
@@ -65,12 +67,12 @@ export default async function PaginaSeguimiento({ params }: { params: { token: s
     let consulta = servicio
       .from("vinculo")
       .select(
-        "id, materia_origen:materia_origen_id (nombre, creditos), asignatura:asignatura_id (nombre, semestre, creditos)",
+        "id, materia_origen:materia_origen_id (nombre, creditos, tipo, metadatos), asignatura:asignatura_id (nombre, semestre, creditos)",
       )
       .eq("caso_id", caso.id);
     consulta = aprobado ? consulta.eq("estado", "aprobado") : consulta.neq("estado", "rechazado");
     const { data } = await consulta;
-    homologadas = (data ?? []) as unknown as HomologacionFila[];
+    homologadas = ((data ?? []) as unknown as HomologacionFilaCruda[]).map(aFilaHomologacion);
   }
 
   homologadas.sort((a, b) => {

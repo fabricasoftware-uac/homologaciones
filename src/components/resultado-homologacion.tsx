@@ -16,9 +16,40 @@ import type { EstadoCaso } from "@/types";
 
 export type HomologacionFila = {
   id: string;
-  materia_origen: { nombre: string; creditos: number | null } | null;
+  // horas: intensidad horaria original (competencias SENA); los créditos ya vienen convertidos ÷48.
+  materia_origen: { nombre: string; creditos: number | null; horas: number | null } | null;
   asignatura: { nombre: string; semestre: number; creditos: number } | null;
 };
+
+// Fila cruda tal como la devuelve el select de vinculo con materia_origen embebida (nombre,
+// creditos, tipo, metadatos). Deriva `horas` para las competencias SENA. La comparten
+// /mis-homologaciones/[id] y /seguimiento/[token].
+export type HomologacionFilaCruda = {
+  id: string;
+  materia_origen: {
+    nombre: string;
+    creditos: number | null;
+    tipo: string | null;
+    metadatos: Record<string, unknown> | null;
+  } | null;
+  asignatura: { nombre: string; semestre: number; creditos: number } | null;
+};
+
+export function aFilaHomologacion(cruda: HomologacionFilaCruda): HomologacionFila {
+  const ih = Number(cruda.materia_origen?.metadatos?.intensidad_horaria);
+  return {
+    id: cruda.id,
+    materia_origen: cruda.materia_origen
+      ? {
+          nombre: cruda.materia_origen.nombre,
+          creditos: cruda.materia_origen.creditos,
+          horas:
+            cruda.materia_origen.tipo === "competencia" && Number.isFinite(ih) && ih > 0 ? ih : null,
+        }
+      : null,
+    asignatura: cruda.asignatura,
+  };
+}
 
 function ordinal(n: number) {
   return `${n}.º`;
@@ -40,6 +71,13 @@ export function ResultadoHomologacion({
   const aprobado = estado === "aprobado";
   const esPosible = estado === "en_revision";
   const creditos = homologadas.reduce((s, h) => s + (h.asignatura?.creditos ?? 0), 0);
+  // Horas de formación SENA (una competencia puede aparecer en varias filas si cubre varias
+  // asignaturas: se cuenta una sola vez por nombre).
+  const horasPorMateria = new Map<string, number>();
+  for (const h of homologadas) {
+    if (h.materia_origen?.horas) horasPorMateria.set(h.materia_origen.nombre, h.materia_origen.horas);
+  }
+  const horasFormacion = Array.from(horasPorMateria.values()).reduce((s, n) => s + n, 0);
   const verde = aprobado;
 
   return (
@@ -140,6 +178,12 @@ export function ResultadoHomologacion({
                     <strong className="text-slate-900 dark:text-slate-100">{creditos}</strong> créditos
                   </span>
                 )}
+                {horasFormacion > 0 && (
+                  <span>
+                    <strong className="text-slate-900 dark:text-slate-100">{horasFormacion}</strong>{" "}
+                    horas de formación (≈ {Math.max(1, Math.round(horasFormacion / 48))} créditos)
+                  </span>
+                )}
               </div>
             )}
           </section>
@@ -169,8 +213,15 @@ export function ResultadoHomologacion({
                     key={h.id}
                     className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-3 px-4 py-3 text-sm"
                   >
-                    <span className="min-w-0 text-slate-500 dark:text-slate-400 truncate">
-                      {h.materia_origen?.nombre ?? "—"}
+                    <span className="min-w-0">
+                      <span className="block text-slate-500 dark:text-slate-400 truncate">
+                        {h.materia_origen?.nombre ?? "—"}
+                      </span>
+                      {h.materia_origen?.horas != null && h.materia_origen.creditos != null && (
+                        <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                          {h.materia_origen.horas} h ≈ {h.materia_origen.creditos} cr
+                        </span>
+                      )}
                     </span>
                     <span
                       className={`flex items-center justify-center w-7 h-7 rounded-full shrink-0 ${

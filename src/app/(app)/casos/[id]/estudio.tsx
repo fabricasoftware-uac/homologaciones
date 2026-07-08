@@ -52,6 +52,8 @@ export type MateriaStudio = {
   creditos: number | null;
   nota: string | null;
   semestre: number | null;
+  // Competencias SENA: horas de formación originales (los créditos ya vienen convertidos ÷48).
+  horas: number | null;
 };
 export type AsignaturaStudio = {
   id: string;
@@ -619,6 +621,7 @@ export function EstudioHomologacion({
                     codigo={m.codigo}
                     nombre={m.nombre}
                     creditos={m.creditos}
+                    horas={m.horas}
                     nota={m.nota}
                     alerta={avisos.length > 0 ? avisos.join(" · ") : undefined}
                     estado={algunAprobado ? "aprobado" : (vs[0]?.estado ?? null)}
@@ -952,6 +955,7 @@ function Tarjeta({
   codigo,
   nombre,
   creditos,
+  horas,
   nota,
   similitud,
   razon,
@@ -969,6 +973,8 @@ function Tarjeta({
   codigo: string | null;
   nombre: string;
   creditos: number | null;
+  // Horas de formación (SENA): si vienen, el chip muestra la conversión "N h ≈ M cr".
+  horas?: number | null;
   nota: string | null;
   similitud?: number;
   razon?: string;
@@ -1095,7 +1101,11 @@ function Tarjeta({
           destino iba en azul fijo, que chocaba con el color de marca y con los temas oscuros azulados. */}
       <h3 className="font-bold text-sm leading-snug text-slate-800 dark:text-slate-100">{nombre}</h3>
       <div className="flex items-center gap-2 mt-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-        {creditos != null && <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{creditos} CR</span>}
+        {creditos != null && (
+          <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+            {horas != null ? `${horas} h ≈ ${creditos} cr` : `${creditos} CR`}
+          </span>
+        )}
         {nota && (
           <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded ml-auto">
             Nota {nota}
