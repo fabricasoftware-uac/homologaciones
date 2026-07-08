@@ -153,6 +153,88 @@ async function regenerarAsignaturas(
   };
 }
 
+// ── Gestión manual de asignaturas del pensum ──
+// La extracción automática puede fallar u omitir: el admin puede AGREGAR una asignatura que faltó,
+// EDITAR una extraída (nombre/código/créditos/semestre) o ELIMINARLA. Es la red de seguridad sin IA.
+// La RLS "Solo admin gestiona asignaturas" autoriza estas escrituras con la sesión del admin.
+
+// Entero opcional de un formulario: "" o inválido → null.
+function aEnteroPositivo(valor: FormDataEntryValue | null): number | null {
+  const n = Number(String(valor ?? "").trim());
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// Créditos: entero >= 0 (la tabla lo exige no-null; si no viene, 0).
+function aCreditosForm(valor: FormDataEntryValue | null): number {
+  const n = Number(String(valor ?? "").trim());
+  return Number.isInteger(n) && n >= 0 ? n : 0;
+}
+
+export async function agregarAsignatura(formData: FormData): Promise<{ error: string } | void> {
+  const pensumId = String(formData.get("pensumId") ?? "");
+  const nombre = String(formData.get("nombre") ?? "").trim();
+  const semestre = aEnteroPositivo(formData.get("semestre"));
+  if (!pensumId) return { error: "Carrera no válida." };
+  if (!nombre) return { error: "El nombre de la asignatura es obligatorio." };
+  if (semestre === null) return { error: "El semestre debe ser un número mayor que cero." };
+
+  const supabase = crearClienteServidor();
+  const { error } = await supabase.from("asignatura").insert({
+    pensum_id: pensumId,
+    nombre,
+    codigo: String(formData.get("codigo") ?? "").trim() || null,
+    creditos: aCreditosForm(formData.get("creditos")),
+    semestre,
+  });
+  if (error) {
+    return {
+      error: error.code === "23505" ? "Ya existe una asignatura con ese código en este pensum." : "No se pudo agregar la asignatura.",
+    };
+  }
+  revalidatePath("/carreras");
+}
+
+export async function editarAsignatura(formData: FormData): Promise<{ error: string } | void> {
+  const asignaturaId = String(formData.get("asignaturaId") ?? "");
+  const nombre = String(formData.get("nombre") ?? "").trim();
+  const semestre = aEnteroPositivo(formData.get("semestre"));
+  if (!asignaturaId) return { error: "Asignatura no válida." };
+  if (!nombre) return { error: "El nombre de la asignatura es obligatorio." };
+  if (semestre === null) return { error: "El semestre debe ser un número mayor que cero." };
+
+  const supabase = crearClienteServidor();
+  const { error } = await supabase
+    .from("asignatura")
+    .update({
+      nombre,
+      codigo: String(formData.get("codigo") ?? "").trim() || null,
+      creditos: aCreditosForm(formData.get("creditos")),
+      semestre,
+      // El embedding describe el nombre anterior: se anula y el backfill perezoso del pipeline lo
+      // regenera en el próximo caso (asegurarEmbeddingsAsignaturas).
+      embedding: null,
+    })
+    .eq("id", asignaturaId);
+  if (error) {
+    return {
+      error: error.code === "23505" ? "Ya existe una asignatura con ese código en este pensum." : "No se pudo guardar la asignatura.",
+    };
+  }
+  revalidatePath("/carreras");
+}
+
+export async function eliminarAsignatura(formData: FormData): Promise<{ error: string } | void> {
+  const asignaturaId = String(formData.get("asignaturaId") ?? "");
+  if (!asignaturaId) return { error: "Asignatura no válida." };
+
+  const supabase = crearClienteServidor();
+  // Primero sus vínculos (FK sin cascada): homologaciones hechas contra esta asignatura dejan de valer.
+  await supabase.from("vinculo").delete().eq("asignatura_id", asignaturaId);
+  const { error } = await supabase.from("asignatura").delete().eq("id", asignaturaId);
+  if (error) return { error: "No se pudo eliminar la asignatura." };
+  revalidatePath("/carreras");
+}
+
 // Elimina el PDF del plan de una carrera junto con sus asignaturas: el PDF DEFINE el pensum, así que
 // quitarlo deja la carrera sin plan (antes las asignaturas quedaban "pegadas" y parecía que el pensum
 // viejo seguía cargado). Los vínculos que apuntaban a esas asignaturas se borran primero (FK).
