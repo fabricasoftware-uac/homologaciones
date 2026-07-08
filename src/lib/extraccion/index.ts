@@ -58,6 +58,9 @@ export async function extraerUnidadesAcademicas(
       const unidades = (await extraerMateriasPorVision(bytesPdf, true)).map((u) => ({
         ...u,
         tipo: "competencia",
+        // Las competencias SENA no tienen semestre: si el modelo inventó uno, se descarta (con
+        // semestre las tarjetas de origen aparecen repartidas en "Semestre 1/2/3..." sin sentido).
+        semestre_origen: null,
       }));
       return { unidades, tipoInstitucion, metodo: "VisionSENA" };
     }
@@ -70,7 +73,13 @@ export async function extraerUnidadesAcademicas(
     console.warn(
       "[extraccion] SenaParser no encontró competencias (¿cambió el formato del SENA?); fallback a ParserIA.",
     );
-    const rescatadas = await parserIA.extraer(textoPdf, bytesPdf);
+    // Mismo saneo que en visión: el extractor genérico asigna semestres, pero una constancia SENA
+    // no los tiene — se fuerzan a null y el tipo a competencia.
+    const rescatadas = (await parserIA.extraer(textoPdf, bytesPdf)).map((u) => ({
+      ...u,
+      tipo: "competencia",
+      semestre_origen: null,
+    }));
     return { unidades: rescatadas, tipoInstitucion, metodo: `${parserSena.nombre}→${parserIA.nombre}` };
   }
 

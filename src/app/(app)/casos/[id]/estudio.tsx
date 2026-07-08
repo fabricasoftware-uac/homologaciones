@@ -587,9 +587,11 @@ export function EstudioHomologacion({
               </button>
             </div>
           )}
-          {agrupar(materiasOrdenadas).map(([sem, items]) => (
-            <GrupoSemestre key={`o-${sem}`} sem={sem}>
-              {items.map((m) => {
+          {/* Vistazo GENERAL del origen: lista plana, sin agrupar por semestre. El semestre de otra
+              institución no aporta a la decisión (y el SENA ni siquiera tiene), y el extractor puede
+              asignarlo distinto en cada reproceso: agrupar aquí solo desordenaba la columna. */}
+          <div className="space-y-2">
+            {materiasOrdenadas.map((m) => {
                 // TODOS los vínculos de la materia (una competencia SENA puede cubrir varias
                 // asignaturas): la tarjeta lista cada destino, no solo el primero.
                 const vs = vinculosDeMateria(m.id);
@@ -632,9 +634,8 @@ export function EstudioHomologacion({
                     onEditar={cerrado ? undefined : () => setEditorMateria({ modo: "editar", materia: m })}
                   />
                 );
-              })}
-            </GrupoSemestre>
-          ))}
+            })}
+          </div>
           {materias.length === 0 && <Vacio>No se detectaron materias.</Vacio>}
         </Columna>
 
