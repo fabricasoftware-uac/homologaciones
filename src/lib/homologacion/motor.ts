@@ -214,32 +214,41 @@ export async function decidirVinculos(args: {
     }
   }
 
-  // ── Camino legacy (fallback): unidades sin embedding → UNA llamada contra todo el pensum ──
-  // Mantiene el comportamiento pre-Fase 7 cuando no hay vectores (p. ej. sin key de embeddings).
+  // ── Camino legacy (fallback): unidades sin embedding → misma lógica que microlotes pero contra
+  // TODO el pensum. Troceamos en grupos de LOTE_LLM unidades para mantener payloads chicos (evitar
+  // json_validate_failed de Groq con prompts enormes, típico del SENA con ~15 competencias).
   if (sinEmbedding.length > 0) {
-    stats.legacy = sinEmbedding.length;
-    const vinculos = await emparejarMaterias(
-      sinEmbedding.map((i) => ({
-        nombre: descripcionCompacta(unidades[i]),
-        creditos: unidades[i].creditos,
-        nota: unidades[i].nota,
-      })),
-      asignaturas.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
-      esSena,
-      esSena ? SISTEMA_SENA : undefined,
-    );
-    const porUnidad = new Map<number, DecisionUnidad>();
-    for (const v of vinculos) {
-      const idxGlobal = sinEmbedding[v.materia];
-      if (idxGlobal === undefined || !asignaturas[v.asignatura]) continue;
-      const lista = porUnidad.get(idxGlobal) ?? [];
-      lista.push({ asignatura_id: asignaturas[v.asignatura].id, similitud: v.similitud, razon: v.razon });
-      porUnidad.set(idxGlobal, lista);
-    }
-    for (const i of sinEmbedding) {
-      const decision = porUnidad.get(i) ?? [];
-      decisiones.set(i, decision);
-      void guardarDecision(supabase, hashes[i], pensumId, decision, "ia");
+    for (let p = 0; p < sinEmbedding.length; p += LOTE_LLM) {
+      const lote = sinEmbedding.slice(p, p + LOTE_LLM);
+      stats.legacy += lote.length;
+
+      try {
+        const vinculos = await emparejarMaterias(
+          lote.map((i) => ({
+            nombre: descripcionCompacta(unidades[i]),
+            creditos: unidades[i].creditos,
+            nota: unidades[i].nota,
+          })),
+          asignaturas.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
+          esSena,
+          esSena ? SISTEMA_SENA : undefined,
+        );
+        const porUnidad = new Map<number, DecisionUnidad>();
+        for (const v of vinculos) {
+          const idxGlobal = lote[v.materia];
+          if (idxGlobal === undefined || !asignaturas[v.asignatura]) continue;
+          const lista = porUnidad.get(idxGlobal) ?? [];
+          lista.push({ asignatura_id: asignaturas[v.asignatura].id, similitud: v.similitud, razon: v.razon });
+          porUnidad.set(idxGlobal, lista);
+        }
+        for (const i of lote) {
+          const decision = porUnidad.get(i) ?? [];
+          decisiones.set(i, decision);
+          void guardarDecision(supabase, hashes[i], pensumId, decision, "ia");
+        }
+      } catch (e) {
+        console.warn(`[motor] Falló un lote legacy; esas unidades quedan sin vínculos:`, e);
+      }
     }
   }
 

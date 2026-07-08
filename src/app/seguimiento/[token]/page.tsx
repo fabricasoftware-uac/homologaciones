@@ -65,7 +65,7 @@ export default async function PaginaSeguimiento({ params }: { params: { token: s
     let consulta = servicio
       .from("vinculo")
       .select(
-        "id, materia_origen:materia_origen_id (nombre, creditos), asignatura:asignatura_id (nombre, semestre, creditos)",
+        "id, materia_origen:materia_origen_id (nombre, creditos, intensidad_horaria), asignatura:asignatura_id (nombre, semestre, creditos)",
       )
       .eq("caso_id", caso.id);
     consulta = aprobado ? consulta.eq("estado", "aprobado") : consulta.neq("estado", "rechazado");

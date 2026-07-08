@@ -325,16 +325,17 @@ async function estimarSemestreConGemini(
 
   let sistema =
     "Eres un asesor académico experto en homologaciones universitarias en Colombia. Recibes un resumen del plan de estudios organizado por semestre, indicando qué asignaturas homologó el estudiante y cuáles NO. Tu tarea: estimar en qué semestre quedaría el estudiante.\n\n" +
+    "IMPORTANTE: los números de semestre son solo una guía organizativa — una materia que en esta universidad está en 2º semestre, en otra podría estar en 4º. NO asumas que el estudiante DEBE completar el semestre 1 para pasar al 2. Las materias de semestres avanzados pueden homologarse aunque falten materias de semestres iniciales.\n\n" +
     "Reglas:\n" +
-    "- El semestre estimado debe ser el PRIMER semestre donde las materias NO homologadas sean MAYORÍA (más del 50% sin cubrir).\n" +
-    "- Si un semestre tiene al menos un 50% de créditos homologados, el estudiante PUEDE saltarlo.\n" +
-    "- Mira el semestre MÁS ALTO que tenga materias homologadas: ese es el nivel alcanzado. El estudiante entra A ESE MAXIMO.\n" +
-    "- Ejemplo: si hay materias homologadas en semestres 1, 2, 3 y 4, el estudiante entra a semestre 4 aunque falten algunas sueltas en semestres anteriores.\n" +
+    "- Calcula el porcentaje TOTAL de créditos homologados sobre el total de créditos del plan.\n" +
+    "- Estima el semestre de forma PROPORCIONAL: si cubre ~40% de los créditos totales de una carrera de 10 semestres, está alrededor del 4º o 5º semestre.\n" +
+    "- Una materia de semestre 7 homologada cuenta como avance real hacia ese nivel, no la descartes solo porque falten materias de semestres anteriores.\n" +
+    "- Sé flexible con los límites entre semestres: si el estudiante está en el borde entre dos semestres, redondea hacia arriba.\n" +
     "- Responde ÚNICAMENTE un objeto JSON con esta forma: {\"semestre\": 1, \"razon\": \"explicación breve en español\"}";
 
   if (esSena) {
     sistema +=
-      "\n\nORIGEN SENA: El estudiante viene del SENA con competencias, no materias. Las competencias SENA son AMPLIAS: una sola cubre contenido de VARIOS semestres universitarios (ej. una competencia de programación cubre materias de semestres 1 al 4). Por eso puede haber pocas materias homologadas en total pero distribuidas en muchos semestres. NO te fijes en el porcentaje de créditos: mira en qué SEMESTRE está la materia homologada MÁS AVANZADA. Si hay materias homologadas en semestre 5, el estudiante está al menos en nivel 5, sin importar cuántas materias de semestres anteriores le falten.";
+      "\n\nORIGEN SENA: El estudiante viene del SENA con competencias, no materias tradicionales. Las competencias SENA son AMPLIAS — una sola cubre contenido de varios semestres (ej. una competencia de programación equivale a materias de semestres 1 al 4). Una competencia de 1008 horas representa un volumen de formación muy alto. Sé MÁS GENEROSO que con un universitario: si el porcentaje total de créditos cubiertos sugeriría semestre 4, asígnale 5 o 6. Las competencias SENA suelen subestimar el nivel real del estudiante porque son pocas unidades pero muy densas.";
   }
 
   const contenido =

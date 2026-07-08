@@ -16,7 +16,7 @@ import type { EstadoCaso } from "@/types";
 
 export type HomologacionFila = {
   id: string;
-  materia_origen: { nombre: string; creditos: number | null } | null;
+  materia_origen: { nombre: string; creditos: number | null; intensidad_horaria: number | null } | null;
   asignatura: { nombre: string; semestre: number; creditos: number } | null;
 };
 
@@ -165,17 +165,30 @@ export function ResultadoHomologacion({
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {(() => {
+                  // Agrupar por materia_origen usando el ID (más fiable que el nombre para SENA).
                   const grupos = new Map<string, HomologacionFila[]>();
                   for (const h of homologadas) {
-                    const clave = h.materia_origen?.nombre ?? h.id;
-                    const grupo = grupos.get(clave) ?? [];
-                    grupo.push(h);
-                    grupos.set(clave, grupo);
+                    const clave = h.id; // cada fila tiene su propio id de vinculo
+                    // Usamos el primer vinculo como key de grupo
+                    const grupoKey = h.materia_origen?.nombre ?? h.id;
+                    const existente = [...grupos.values()].find((g) =>
+                      g[0]?.materia_origen?.nombre === grupoKey
+                    );
+                    if (existente) {
+                      existente.push(h);
+                    } else {
+                      grupos.set(grupoKey, [h]);
+                    }
                   }
-                  const filas: { origen: string; destinos: { nombre: string; semestre: number; creditos: number }[] }[] = [];
+                  const filas: {
+                    origen: string;
+                    intensidadHoraria: number | null;
+                    destinos: { nombre: string; semestre: number; creditos: number }[];
+                  }[] = [];
                   for (const [, grupo] of grupos) {
                     filas.push({
                       origen: grupo[0].materia_origen?.nombre ?? "—",
+                      intensidadHoraria: grupo[0].materia_origen?.intensidad_horaria ?? null,
                       destinos: grupo.map((h) => ({
                         nombre: h.asignatura?.nombre ?? "—",
                         semestre: h.asignatura?.semestre ?? 0,
@@ -185,9 +198,16 @@ export function ResultadoHomologacion({
                   }
                   return filas.map((f, fi) => (
                     <div key={fi} className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-3 px-4 py-3 text-sm">
-                      <span className="min-w-0 text-slate-500 dark:text-slate-400 break-words">
-                        {f.origen}
-                      </span>
+                      <div className="min-w-0">
+                        <span className="text-slate-500 dark:text-slate-400 break-words">
+                          {f.origen}
+                        </span>
+                        {f.intensidadHoraria != null && (
+                          <span className="block text-[11px] font-medium text-slate-400 dark:text-slate-500 mt-0.5">
+                            {f.intensidadHoraria}h de formación
+                          </span>
+                        )}
+                      </div>
                       <span
                         className={`flex items-center justify-center w-7 h-7 rounded-full shrink-0 mt-0.5 ${
                           verde ? "bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400" : "bg-blue-50 dark:bg-blue-500/10 text-blue-500 dark:text-blue-400"

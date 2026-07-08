@@ -64,7 +64,7 @@ export default async function PaginaDetalleHomologacion({ params }: { params: { 
     let consulta = supabase
       .from("vinculo")
       .select(
-        "id, materia_origen:materia_origen_id (nombre, creditos), asignatura:asignatura_id (nombre, semestre, creditos)",
+        "id, materia_origen:materia_origen_id (nombre, creditos, intensidad_horaria), asignatura:asignatura_id (nombre, semestre, creditos)",
       )
       .eq("caso_id", params.id);
     consulta = aprobado ? consulta.eq("estado", "aprobado") : consulta.neq("estado", "rechazado");

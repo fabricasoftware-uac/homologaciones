@@ -25,7 +25,7 @@ export type EstadoHomologacion =
   | null;
 
 const TAMANO_MAXIMO = 10 * 1024 * 1024; // 10 MB, igual que el tope del bucket
-const LIMITE_DIARIO = 5; // homologaciones por día, contadas por IP y por invitado
+const LIMITE_DIARIO = 20; // homologaciones por día, contadas por IP y por invitado
 const MIN_TEXTO_PDF = 30; // mínimo de caracteres para dar el PDF por legible
 
 // Identificador de la IP del solicitante, HASHEADO (sha256): no guardamos la IP en claro, pero
