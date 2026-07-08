@@ -258,6 +258,15 @@ export async function reprocesarCaso(formData: FormData): Promise<{ error: strin
     return { error: "No pudimos leer el certificado para reprocesarlo." };
   }
 
+  // SNAPSHOT de la propuesta actual ANTES de borrar: si el pipeline falla a mitad, se restaura tal
+  // cual y el caso NO queda vacío (antes un reproceso fallido borraba materias y vínculos y el admin
+  // veía cero vinculaciones mientras el estudiante seguía viendo la propuesta vieja).
+  const { data: materiasPrevias } = await servicio
+    .from("materia_origen")
+    .select("*")
+    .eq("caso_id", casoId);
+  const { data: vinculosPrevios } = await servicio.from("vinculo").select("*").eq("caso_id", casoId);
+
   // Limpiamos la propuesta anterior: primero los vínculos (referencian materias) y luego las
   // materias. Dejamos el caso en 'procesando' mientras corre el pipeline.
   await servicio.from("vinculo").delete().eq("caso_id", casoId);
@@ -268,20 +277,36 @@ export async function reprocesarCaso(formData: FormData): Promise<{ error: strin
     .eq("id", casoId);
 
   try {
-    // Pasamos los bytes: si el certificado está escaneado, el pipeline lo lee por visión (OCR).
-    await procesarCaso(casoId, texto, bytes);
+    // Pasamos los bytes (si el certificado está escaneado, el pipeline lo lee por visión) e
+    // ignorarCache: reutilizar el caché de decisiones reproduciría la MISMA propuesta que el admin
+    // quiere regenerar.
+    await procesarCaso(casoId, texto, bytes, { ignorarCache: true });
   } catch (error) {
     console.error("[reprocesar] Falló el pipeline del caso", casoId, error);
-    // No lo dejamos colgado en 'procesando': lo devolvemos a revisión manual antes de responder.
+    // Restauramos el snapshot (los ids originales se conservan, así los vínculos siguen apuntando
+    // bien) y lo devolvemos a revisión manual antes de responder.
+    try {
+      // El pipeline pudo alcanzar a insertar materias antes de fallar: se limpia antes de restaurar.
+      await servicio.from("vinculo").delete().eq("caso_id", casoId);
+      await servicio.from("materia_origen").delete().eq("caso_id", casoId);
+      if (materiasPrevias && materiasPrevias.length > 0) {
+        await servicio.from("materia_origen").insert(materiasPrevias);
+      }
+      if (vinculosPrevios && vinculosPrevios.length > 0) {
+        await servicio.from("vinculo").insert(vinculosPrevios);
+      }
+    } catch (errorRestaurar) {
+      console.error("[reprocesar] No se pudo restaurar la propuesta anterior", casoId, errorRestaurar);
+    }
     await servicio.from("caso").update({ estado: "en_revision" }).eq("id", casoId);
     revalidatePath(`/casos/${casoId}`);
     if (error instanceof ErrorIANoDisponible) {
       return {
         error:
-          "El servicio de IA no está disponible ahora mismo (posible falta de cupo o tokens). El caso quedó en revisión; vuelve a intentar el reprocesamiento en unos minutos.",
+          "El servicio de IA no está disponible ahora mismo (posible falta de cupo o tokens). Se conservó la propuesta anterior; vuelve a intentar el reprocesamiento en unos minutos.",
       };
     }
-    return { error: "El reprocesamiento falló. Inténtalo de nuevo en un momento." };
+    return { error: "El reprocesamiento falló. Se conservó la propuesta anterior." };
   }
 
   revalidatePath(`/casos/${casoId}`);

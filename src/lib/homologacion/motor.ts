@@ -80,8 +80,11 @@ export async function decidirVinculos(args: {
   embsUnidades: (number[] | null)[];
   asignaturas: AsignaturaDestino[];
   esSena: boolean;
+  // Reproceso explícito del admin: salta el Nivel 0 (leer el caché reproduciría la MISMA propuesta
+  // que se quiere regenerar) y permite pisar decisiones admin NEGATIVAS ([]) al guardar las nuevas.
+  ignorarCache?: boolean;
 }): Promise<VinculoDecidido[]> {
-  const { supabase, pensumId, unidades, embsUnidades, asignaturas, esSena } = args;
+  const { supabase, pensumId, unidades, embsUnidades, asignaturas, esSena, ignorarCache = false } = args;
   if (unidades.length === 0 || asignaturas.length === 0) return [];
 
   const hashes = unidades.map((u) => hashUnidad(u.textoEmbedding));
@@ -90,28 +93,32 @@ export async function decidirVinculos(args: {
   const stats = { cache: 0, regla: 0, llm: 0, legacy: 0 };
 
   // ── Nivel 0 · Caché (una sola consulta batch) ──
-  try {
-    const { data } = await supabase
-      .from("decision_matching")
-      .select("hash_unidad, vinculos")
-      .eq("pensum_id", pensumId)
-      .in("hash_unidad", hashes);
-    const cacheado = new Map(
-      ((data as { hash_unidad: string; vinculos: DecisionUnidad }[] | null) ?? []).map((r) => [
-        r.hash_unidad,
-        r.vinculos,
-      ]),
-    );
-    hashes.forEach((h, i) => {
-      const hit = cacheado.get(h);
-      if (hit) {
-        // Si el pensum cambió desde que se cacheó, alguna asignatura puede ya no existir: se filtra.
-        decisiones.set(i, hit.filter((v) => porId.has(v.asignatura_id)));
-        stats.cache++;
-      }
-    });
-  } catch (e) {
-    console.warn("[motor] Caché de decisiones no disponible; sigo sin él:", e);
+  if (ignorarCache) {
+    console.log("[motor] Reproceso: se ignora el caché de decisiones (Nivel 0).");
+  } else {
+    try {
+      const { data } = await supabase
+        .from("decision_matching")
+        .select("hash_unidad, vinculos")
+        .eq("pensum_id", pensumId)
+        .in("hash_unidad", hashes);
+      const cacheado = new Map(
+        ((data as { hash_unidad: string; vinculos: DecisionUnidad }[] | null) ?? []).map((r) => [
+          r.hash_unidad,
+          r.vinculos,
+        ]),
+      );
+      hashes.forEach((h, i) => {
+        const hit = cacheado.get(h);
+        if (hit) {
+          // Si el pensum cambió desde que se cacheó, alguna asignatura puede ya no existir: se filtra.
+          decisiones.set(i, hit.filter((v) => porId.has(v.asignatura_id)));
+          stats.cache++;
+        }
+      });
+    } catch (e) {
+      console.warn("[motor] Caché de decisiones no disponible; sigo sin él:", e);
+    }
   }
 
   // ── Nivel 1 · Regla de igualdad de nombre ──
@@ -129,7 +136,7 @@ export async function decidirVinculos(args: {
     ];
     decisiones.set(i, decision);
     stats.regla++;
-    void guardarDecision(supabase, hashes[i], pensumId, decision, "regla");
+    void guardarDecision(supabase, hashes[i], pensumId, decision, "regla", ignorarCache);
   }
 
   // ── Nivel 2 · Vectores: candidatas Top-N por unidad pendiente ──
@@ -205,7 +212,7 @@ export async function decidirVinculos(args: {
         const decision = porUnidad.get(idx) ?? [];
         decisiones.set(idx, decision);
         stats.llm++;
-        void guardarDecision(supabase, hashes[idx], pensumId, decision, "ia");
+        void guardarDecision(supabase, hashes[idx], pensumId, decision, "ia", ignorarCache);
       }
     } catch (e) {
       console.warn("[motor] Falló un microlote LLM; esas unidades van por legacy:", e);
@@ -237,7 +244,7 @@ export async function decidirVinculos(args: {
     for (const i of sinEmbedding) {
       const decision = porUnidad.get(i) ?? [];
       decisiones.set(i, decision);
-      void guardarDecision(supabase, hashes[i], pensumId, decision, "ia");
+      void guardarDecision(supabase, hashes[i], pensumId, decision, "ia", ignorarCache);
     }
   }
 
@@ -276,17 +283,24 @@ async function guardarDecision(
   pensumId: string,
   vinculos: DecisionUnidad,
   fuente: "ia" | "regla",
+  pisarAdminNegativa = false,
 ): Promise<void> {
   try {
     // Una decisión HUMANA nunca se pisa con una automática: si el asesor ya decidió esta unidad
-    // contra este pensum, la IA no la toca.
+    // contra este pensum, la IA no la toca. Excepción (solo en reproceso explícito): una decisión
+    // admin NEGATIVA ([]) sí puede pisarse — "no homologa nada" no debe bloquear la regeneración
+    // para siempre; las decisiones admin CON vínculos siguen siendo intocables.
     const { data: existente } = await supabase
       .from("decision_matching")
-      .select("fuente")
+      .select("fuente, vinculos")
       .eq("hash_unidad", hash)
       .eq("pensum_id", pensumId)
       .maybeSingle();
-    if ((existente as { fuente?: string } | null)?.fuente === "admin") return;
+    const fila = existente as { fuente?: string; vinculos?: DecisionUnidad } | null;
+    if (fila?.fuente === "admin") {
+      const esNegativa = !fila.vinculos || fila.vinculos.length === 0;
+      if (!(pisarAdminNegativa && esNegativa)) return;
+    }
 
     await supabase
       .from("decision_matching")

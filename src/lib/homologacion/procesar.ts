@@ -21,6 +21,9 @@ export async function procesarCaso(
   casoId: string,
   textoPdf: string,
   bytesPdf?: Uint8Array,
+  // ignorarCache: reproceso explícito del admin — el motor salta el caché de decisiones para
+  // regenerar la propuesta de verdad (si no, el Nivel 0 reproduciría exactamente lo mismo).
+  opciones?: { ignorarCache?: boolean },
 ): Promise<void> {
   const supabase = crearClienteServicio();
 
@@ -132,6 +135,7 @@ export async function procesarCaso(
       embsUnidades,
       asignaturas,
       esSena,
+      ignorarCache: opciones?.ignorarCache ?? false,
     });
 
     const filasVinculo = decididos
