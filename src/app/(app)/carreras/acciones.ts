@@ -53,10 +53,13 @@ export async function subirPlanPdf(
   // Flujo clave: el PDF que sube el admin DEFINE el pensum. Extraemos sus asignaturas con IA y las
   // dejamos en la tabla `asignatura`, que es contra lo que se empareja al homologar. Sin esto, una
   // carrera sin asignaturas sembradas "no relaciona" nada (antes solo Ing. de Software las tenía).
-  const detalle = await regenerarAsignaturas(supabase, pensumId, bytes);
+  const resultado = await regenerarAsignaturas(supabase, pensumId, bytes);
 
   revalidatePath("/carreras");
-  return { ok: true, detalle };
+  // Si la extracción falló, el admin debe enterarse YA (antes se devolvía ok con un texto tibio y el
+  // pensum viejo quedaba cargado en silencio, como si el nuevo PDF hubiera funcionado).
+  if (!resultado.ok) return { error: resultado.detalle };
+  return { ok: true, detalle: resultado.detalle };
 }
 
 // Extrae las asignaturas del PDF y regenera las del pensum, con cuidado de no destruir datos en uso
@@ -65,7 +68,7 @@ async function regenerarAsignaturas(
   supabase: ReturnType<typeof crearClienteServidor>,
   pensumId: string,
   bytes: Uint8Array,
-): Promise<string> {
+): Promise<{ ok: boolean; detalle: string }> {
   // 1) Por TEXTO (PDFs con capa de texto, lo normal). El texto va RECONSTRUIDO en orden visual
   // (renglones y columnas por coordenadas): los pensums en cuadrícula llegaban revueltos a la IA y
   // perdía semestres enteros.
@@ -81,8 +84,6 @@ async function regenerarAsignaturas(
   if (texto.trim().length >= 30) {
     asignaturas = await extraerAsignaturasDePensum(texto);
   }
-  const semestres = new Set(asignaturas.map((a) => a.semestre)).size;
-  console.log(`[pensum] extracción por texto: ${asignaturas.length} asignaturas en ${semestres} semestres`);
 
   // 2) Si el PDF no tiene texto (escaneo) o el texto no dio asignaturas, lo leemos por VISIÓN:
   // renderizamos las páginas a imagen y un modelo multimodal las interpreta (como un OCR con IA).
@@ -96,8 +97,17 @@ async function regenerarAsignaturas(
     }
   }
 
+  const semestres = new Set(asignaturas.map((a) => a.semestre)).size;
+  console.log(
+    `[pensum] extracción${viaVision ? " por visión" : " por texto"}: ${asignaturas.length} asignaturas en ${semestres} semestres`,
+  );
+
   if (asignaturas.length === 0) {
-    return "El PDF se guardó, pero no pudimos detectar asignaturas (ni por texto ni leyendo la imagen).";
+    return {
+      ok: false,
+      detalle:
+        "No pudimos detectar asignaturas en el PDF (ni por texto ni leyendo la imagen). Se conservaron las asignaturas anteriores; revisa el archivo o crea las asignaturas manualmente.",
+    };
   }
 
   // Reemplazamos las asignaturas del pensum por las del nuevo PDF. Primero quitamos los vínculos que
@@ -111,7 +121,10 @@ async function regenerarAsignaturas(
   }
   const { error: errorBorrado } = await supabase.from("asignatura").delete().eq("pensum_id", pensumId);
   if (errorBorrado) {
-    return "El PDF se guardó, pero no pudimos reemplazar las asignaturas anteriores. Inténtalo de nuevo.";
+    return {
+      ok: false,
+      detalle: "El PDF se guardó, pero no pudimos reemplazar las asignaturas anteriores. Inténtalo de nuevo.",
+    };
   }
 
   // La tabla exige código único por pensum (varios null sí se permiten): de-duplicamos códigos.
@@ -127,14 +140,22 @@ async function regenerarAsignaturas(
 
   const { error: errorInsert } = await supabase.from("asignatura").insert(filas);
   if (errorInsert) {
-    return "El PDF se guardó, pero hubo un problema al registrar las asignaturas extraídas.";
+    return {
+      ok: false,
+      detalle: "El PDF se guardó, pero hubo un problema al registrar las asignaturas extraídas.",
+    };
   }
-  return `Se detectaron y cargaron ${filas.length} asignaturas del pensum${
-    viaVision ? " (leídas de la imagen del PDF)" : ""
-  }.`;
+  return {
+    ok: true,
+    detalle: `Se cargaron ${filas.length} asignaturas en ${semestres} semestres${
+      viaVision ? " (leídas de la imagen del PDF)" : ""
+    }.`,
+  };
 }
 
-// Elimina el PDF del plan de una carrera (del bucket y de la tabla).
+// Elimina el PDF del plan de una carrera junto con sus asignaturas: el PDF DEFINE el pensum, así que
+// quitarlo deja la carrera sin plan (antes las asignaturas quedaban "pegadas" y parecía que el pensum
+// viejo seguía cargado). Los vínculos que apuntaban a esas asignaturas se borran primero (FK).
 export async function eliminarPlanPdf(formData: FormData) {
   const pensumId = String(formData.get("pensumId") ?? "");
   const ruta = String(formData.get("ruta") ?? "");
@@ -145,6 +166,13 @@ export async function eliminarPlanPdf(formData: FormData) {
     await supabase.storage.from("planes").remove([ruta]);
   }
   await supabase.from("pensum").update({ archivo_pdf: null }).eq("id", pensumId);
+
+  const { data: viejas } = await supabase.from("asignatura").select("id").eq("pensum_id", pensumId);
+  const idsViejas = ((viejas as { id: string }[] | null) ?? []).map((r) => r.id);
+  if (idsViejas.length > 0) {
+    await supabase.from("vinculo").delete().in("asignatura_id", idsViejas);
+  }
+  await supabase.from("asignatura").delete().eq("pensum_id", pensumId);
 
   revalidatePath("/carreras");
 }
