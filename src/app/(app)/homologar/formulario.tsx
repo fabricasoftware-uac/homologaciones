@@ -34,11 +34,18 @@ const TAMANO_MAXIMO = 10 * 1024 * 1024;
 // la verificación: el formulario sigue funcionando, solo sin captcha.
 const SITE_KEY_CAPTCHA = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
-// Turnstile invoca funciones globales por nombre cuando resuelve o expira el desafío.
+// API mínima de Turnstile para el render EXPLÍCITO. El render implícito (div.cf-turnstile +
+// auto-scan del script) se rompía con la navegación SPA de Next: el script se ejecuta una sola vez
+// y los divs montados después quedaban vacíos hasta recargar la página.
+type TurnstileAPI = {
+  render: (contenedor: HTMLElement, opciones: Record<string, unknown>) => string;
+  reset: (widgetId?: string) => void;
+  remove: (widgetId: string) => void;
+};
+
 declare global {
   interface Window {
-    onCaptchaOk?: () => void;
-    onCaptchaExpira?: () => void;
+    turnstile?: TurnstileAPI;
   }
 }
 
@@ -99,14 +106,49 @@ export function FormularioHomologacion({ pensums }: { pensums: PensumOpcion[] })
   // su token). Si no hay captcha configurado, no bloqueamos nada.
   const captchaRequerido = !!SITE_KEY_CAPTCHA;
   const [captchaListo, setCaptchaListo] = useState(false);
+  const captchaRef = useRef<HTMLDivElement>(null);
 
+  // Render EXPLÍCITO del widget: se monta apenas window.turnstile esté disponible (el poll cubre
+  // tanto la primera carga del script como la navegación SPA, donde el script ya corrió pero este
+  // div es nuevo). El widget inyecta el input oculto cf-turnstile-response dentro del form.
   useEffect(() => {
     if (!captchaRequerido) return;
-    window.onCaptchaOk = () => setCaptchaListo(true);
-    window.onCaptchaExpira = () => setCaptchaListo(false);
+    let idWidget: string | null = null;
+    let intentos = 0;
+
+    const montar = () => {
+      if (idWidget !== null || !captchaRef.current || !window.turnstile) return;
+      idWidget = window.turnstile.render(captchaRef.current, {
+        sitekey: SITE_KEY_CAPTCHA,
+        callback: () => setCaptchaListo(true),
+        "expired-callback": () => {
+          // El token venció sin enviarse: se resetea para que el desafío vuelva a correr solo.
+          setCaptchaListo(false);
+          if (idWidget !== null) window.turnstile?.reset(idWidget);
+        },
+        "error-callback": () => setCaptchaListo(false),
+      });
+    };
+
+    montar();
+    const timer = window.setInterval(() => {
+      intentos += 1;
+      if (idWidget !== null || intentos > 120) {
+        window.clearInterval(timer);
+        return;
+      }
+      montar();
+    }, 250);
+
     return () => {
-      delete window.onCaptchaOk;
-      delete window.onCaptchaExpira;
+      window.clearInterval(timer);
+      if (idWidget !== null) {
+        try {
+          window.turnstile?.remove(idWidget);
+        } catch {
+          // el script pudo descargarse antes que el componente; no hay nada que limpiar
+        }
+      }
     };
   }, [captchaRequerido]);
 
@@ -412,15 +454,15 @@ export function FormularioHomologacion({ pensums }: { pensums: PensumOpcion[] })
         <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 min-h-[65px]">
           {captchaRequerido ? (
             <>
-              <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />
-              {/* El widget inyecta el input oculto cf-turnstile-response dentro del form al resolverse. */}
-              <div
-                className="cf-turnstile"
-                data-sitekey={SITE_KEY_CAPTCHA}
-                data-callback="onCaptchaOk"
-                data-expired-callback="onCaptchaExpira"
-                data-error-callback="onCaptchaExpira"
+              {/* render=explicit desactiva el auto-scan del script: sin él, una recarga dura
+                  renderizaría DOS widgets (el del scan + el nuestro). El contenedor va sin clase
+                  cf-turnstile por la misma razón; lo monta el useEffect de arriba. */}
+              <Script
+                src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+                async
+                defer
               />
+              <div ref={captchaRef} className="min-h-[65px]" />
             </>
           ) : (
             <span className="flex items-center gap-2 text-slate-400 dark:text-slate-500">
