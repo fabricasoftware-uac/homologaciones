@@ -22,8 +22,8 @@ const FORMA =
 const SISTEMA = `Eres un extractor de planes de estudio (pensum) universitarios. Recibes el TEXTO de un PDF con el plan de estudios de una carrera, reconstruido en orden visual: los campos de un mismo renglón van separados por " | " y puede venir dividido en secciones "--- COLUMNA N ---" o "--- PÁGINA N ---".
 
 Cómo leer el semestre de cada asignatura:
-- Si hay un encabezado explícito ("Semestre III", "Nivel 2", "Periodo 4", o números romanos), úsalo para todas las asignaturas de ese bloque.
-- En planes en cuadrícula, cada bloque que empieza con "Materia | Créditos" (o similar) es UN semestre, y su número suele aparecer como un dígito suelto (1-12) justo antes, dentro o después del bloque.
+- Si hay un rótulo explícito ("Semestre III", "Nivel 2", "Periodo 4", o números romanos), úsalo para todas las asignaturas de su bloque. OJO: el rótulo puede aparecer al FINAL del bloque (cierra la lista de ese semestre), no solo al inicio.
+- En planes en cuadrícula, cada bloque que empieza con "Materia | Créditos", "CURSO | CR" (o similar) es UN semestre, y su número puede aparecer como un dígito suelto (1-12) justo antes, dentro o después del bloque.
 - Los planes suelen tener entre 8 y 12 semestres: recorre TODO el texto hasta el final y no te detengas en los primeros bloques.
 
 Extrae TODAS las asignaturas del plan. Para cada una: nombre (obligatorio; si el nombre quedó partido en dos renglones, únelo), codigo (institucional si aparece; si no, null), creditos (entero; si no aparece, 0), semestre (número del semestre al que pertenece, OBLIGATORIO).
@@ -44,10 +44,13 @@ const MAX_PAGINAS_VISION = 20;
 // Tamaño máximo de cada trozo de texto que se envía a la IA. Un plan grande se trocea por secciones
 // (columnas/páginas del texto estructurado) y se hace una llamada por trozo; los resultados se
 // fusionan y deduplican. Así ningún semestre queda fuera por truncamiento.
-const LIMITE_TROZO = 10000;
-
-// Tokens de salida explícitos: sin esto algunos modelos truncan la lista JSON de un plan grande.
-const MAX_TOKENS_SALIDA = 8192;
+//
+// PRESUPUESTO: el tier gratuito de Groq limita a 8.000 tokens por request (TPM), y max_tokens de
+// SALIDA cuenta contra ese límite. 8.000 chars de entrada (~2.300 tokens) + system (~400) + 4.000 de
+// salida ≈ 6.700, con margen. Con 8192 de salida el request pedía ~9.800 y Groq devolvía 413 en
+// TODOS los modelos.
+const LIMITE_TROZO = 8000;
+const MAX_TOKENS_SALIDA = 4000;
 
 function aEnteroPositivoONull(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === "") return null;

@@ -50,6 +50,19 @@ function esBandaDeTexto(banda: Banda): boolean {
   return conPalabras.length >= 3;
 }
 
+// Una banda es AUTOCONTENIDA si sus renglones traen el crédito junto al nombre (terminan en un
+// número de 1-2 dígitos) o encabezados tipo "CURSO | CR". Distingue una columna de semestre completa
+// (nombre+crédito) de la columna de solo-nombres de una tabla lineal: solo las autocontenidas pueden
+// emitirse por separado sin romper la asociación nombre↔crédito.
+function esBandaAutocontenida(banda: Banda): boolean {
+  const renglones = aRenglones(banda.fragmentos);
+  if (renglones.length < 4) return false;
+  const conCredito = renglones.filter(
+    (r) => /(^|[\s|])\d{1,2}$/.test(r.trim()) || /\b(cr[eé]ditos?|cr)\s*$/i.test(r.trim()),
+  );
+  return conCredito.length / renglones.length >= 0.3;
+}
+
 // Agrupa fragmentos en renglones visuales por su y (el eje y del PDF crece hacia ARRIBA: orden
 // descendente = de arriba hacia abajo) y une cada renglón de izquierda a derecha, marcando con " | "
 // los saltos de celda.
@@ -88,10 +101,12 @@ function reconstruirPagina(fragmentos: Fragmento[], numeroPagina: number): strin
   const bandas = detectarBandas(fragmentos);
   const bandasDeTexto = bandas.filter(esBandaDeTexto);
 
-  if (bandasDeTexto.length >= 3) {
-    // Cuadrícula: cada columna con texto suele ser un semestre. Los números/encabezados que quedaron
-    // en bandas no-texto (p. ej. la fila "1 2 3..." de encabezados) se anexan a su columna más cercana
-    // para no perder los rótulos de semestre.
+  // Las bandas SIN texto (números sueltos: créditos, rótulos "1 2 3") se anexan a su banda de texto
+  // más cercana ANTES de decidir el modo. Clave para columnas donde el crédito quedó más lejos del
+  // nombre que una columna de la otra (pasa en pensums reales: el hueco nombre→crédito puede superar
+  // al hueco entre columnas, y ningún umbral fijo las separa bien): tras anexar, cada columna vuelve
+  // a ser autocontenida (nombre+crédito en el mismo renglón).
+  if (bandasDeTexto.length >= 2) {
     for (const banda of bandas) {
       if (bandasDeTexto.includes(banda)) continue;
       const centro = (banda.inicio + banda.fin) / 2;
@@ -106,6 +121,17 @@ function reconstruirPagina(fragmentos: Fragmento[], numeroPagina: number): strin
       }
       destino.fragmentos.push(...banda.fragmentos);
     }
+  }
+
+  // Cuadrícula clara (3+ columnas con texto) o DOS columnas autocontenidas (cada una trae nombre y
+  // crédito juntos, típico "dos semestres lado a lado"): se emite columna por columna. Con dos
+  // columnas NO autocontenidas (p. ej. tabla código|nombre) emitir por columnas rompería la
+  // asociación entre campos, así que se queda en renglones.
+  const modoColumnas =
+    bandasDeTexto.length >= 3 ||
+    (bandasDeTexto.length === 2 && bandasDeTexto.every(esBandaAutocontenida));
+
+  if (modoColumnas) {
     return bandasDeTexto
       .map(
         (banda, i) =>
