@@ -67,19 +67,34 @@ export function NuevaCarrera() {
             }}
             className="space-y-4"
           >
-            <div>
-              <label htmlFor="carrera-nombre" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
-                Nombre de la carrera
-              </label>
-              <input
-                id="carrera-nombre"
-                name="nombre"
-                type="text"
-                required
-                autoFocus
-                placeholder="Ej.: Ingeniería Industrial"
-                className={inputClase}
-              />
+            <div className="grid grid-cols-[1fr_110px] gap-3">
+              <div>
+                <label htmlFor="carrera-nombre" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                  Nombre de la carrera
+                </label>
+                <input
+                  id="carrera-nombre"
+                  name="nombre"
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder="Ej.: Ingeniería Industrial"
+                  className={inputClase}
+                />
+              </div>
+              <div>
+                <label htmlFor="carrera-version" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                  Versión
+                </label>
+                <input
+                  id="carrera-version"
+                  name="version"
+                  type="text"
+                  placeholder={String(new Date().getFullYear())}
+                  title="Año o etiqueta del plan de estudios (opcional; si lo dejas vacío, va el año actual)"
+                  className={inputClase}
+                />
+              </div>
             </div>
             <DialogFooter>
               <button

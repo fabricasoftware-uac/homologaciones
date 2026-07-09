@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { crearClienteServidor } from "@/lib/supabase/servidor";
+import { crearClienteServicio } from "@/lib/supabase/servicio";
 import {
   extraerAsignaturasDePensum,
   extraerAsignaturasPorVision,
@@ -169,10 +170,14 @@ async function regenerarAsignaturas(
 export async function crearCarrera(formData: FormData): Promise<{ error: string } | void> {
   const nombre = String(formData.get("nombre") ?? "").trim();
   if (!nombre) return { error: "Escribe el nombre de la carrera." };
+  // La tabla exige version NOT NULL (el año/etiqueta del plan de estudios). Si el admin no la
+  // indica, va el año actual — omitirla rompía el insert entero y el toast solo decía "no se pudo".
+  const version = String(formData.get("version") ?? "").trim() || String(new Date().getFullYear());
 
   const supabase = crearClienteServidor();
-  const { error } = await supabase.from("pensum").insert({ carrera: nombre });
+  const { error } = await supabase.from("pensum").insert({ carrera: nombre, version });
   if (error) {
+    console.error("[carreras] crearCarrera falló:", error);
     return {
       error: error.code === "23505" ? "Ya existe una carrera con ese nombre." : "No se pudo crear la carrera.",
     };
@@ -190,6 +195,7 @@ export async function renombrarCarrera(formData: FormData): Promise<{ error: str
   const supabase = crearClienteServidor();
   const { error } = await supabase.from("pensum").update({ carrera: nombre }).eq("id", pensumId);
   if (error) {
+    console.error("[carreras] renombrarCarrera falló:", error);
     return {
       error: error.code === "23505" ? "Ya existe una carrera con ese nombre." : "No se pudo renombrar la carrera.",
     };
@@ -223,7 +229,19 @@ export async function eliminarCarrera(formData: FormData): Promise<{ error: stri
   if (idsAsigs.length > 0) {
     await supabase.from("vinculo").delete().in("asignatura_id", idsAsigs);
   }
-  await supabase.from("decision_matching").delete().eq("pensum_id", pensumId);
+
+  // decision_matching es tabla interna SIN policies: con la sesión, el delete no borra nada (en
+  // silencio) y el delete del pensum choca con su FK. Va con el cliente de SERVICIO, re-chequeando
+  // a mano que quien llama sea admin (el cliente de servicio se salta toda la RLS).
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: perfil } = user
+    ? await supabase.from("perfil").select("rol").eq("id", user.id).single()
+    : { data: null };
+  if ((perfil as { rol?: string } | null)?.rol !== "admin") return { error: "No autorizado." };
+  await crearClienteServicio().from("decision_matching").delete().eq("pensum_id", pensumId);
+
   await supabase.from("asignatura").delete().eq("pensum_id", pensumId);
 
   const { data: fila } = await supabase.from("pensum").select("archivo_pdf").eq("id", pensumId).single();
@@ -233,7 +251,10 @@ export async function eliminarCarrera(formData: FormData): Promise<{ error: stri
   }
 
   const { error } = await supabase.from("pensum").delete().eq("id", pensumId);
-  if (error) return { error: "No se pudo eliminar la carrera." };
+  if (error) {
+    console.error("[carreras] eliminarCarrera falló:", error);
+    return { error: "No se pudo eliminar la carrera." };
+  }
 
   revalidatePath("/carreras");
   revalidatePath("/homologar");
