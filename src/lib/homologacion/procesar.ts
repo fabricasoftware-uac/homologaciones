@@ -114,10 +114,10 @@ export async function procesarCaso(
     semestre_origen: u.semestre,
     tipo: u.tipo,
     metadatos: u.metadatos,
+    intensidad_horaria: u.intensidadHoraria,
     descripcion: u.descripcion,
     componentes: u.componentes,
     texto_embedding: u.textoEmbedding,
-    // pgvector acepta el literal de texto "[...]"; JSON.stringify de un number[] produce justo eso.
     embedding: embsUnidades[idx] ? JSON.stringify(embsUnidades[idx]) : null,
   }));
 
@@ -247,12 +247,13 @@ async function buscarExtraccionPrevia(
     const { data: mats } = await supabase
       .from("materia_origen")
       .select(
-        "nombre, creditos, nota, semestre_origen, tipo, metadatos, descripcion, componentes, texto_embedding, embedding",
+        "nombre, creditos, intensidad_horaria, nota, semestre_origen, tipo, metadatos, descripcion, componentes, texto_embedding, embedding",
       )
       .eq("caso_id", filaPrev.id);
     const filas = (mats ?? []) as {
       nombre: string;
       creditos: number | null;
+      intensidad_horaria: number | null;
       nota: string | null;
       semestre_origen: number | null;
       tipo: string | null;
@@ -270,6 +271,7 @@ async function buscarExtraccionPrevia(
       componentes: r.componentes ?? [],
       textoEmbedding: r.texto_embedding ?? r.nombre,
       creditos: r.creditos,
+      intensidadHoraria: r.intensidad_horaria,
       nota: r.nota,
       semestre: r.semestre_origen,
       tipo: r.tipo ?? "materia",

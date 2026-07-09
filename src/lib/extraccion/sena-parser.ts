@@ -98,12 +98,13 @@ export class SenaParser implements Extractor {
   async extraer(texto: string): Promise<MateriaExtraida[]> {
     let txt = texto.replace(/\s+/g, " ").trim();
 
-    // 1. Limpieza: encabezados de página y cierre (firma + expedición). El encabezado repite en
-    // cada página el membrete + nombre del estudiante + "Página N de M".
+    // 1. Limpieza: encabezados de página y cierre (firma + expedición).
+    const antesLimpieza = txt.length;
     txt = txt.replace(/Ministerio de Trabajo.*?Página\s+\d+\s+de\s+\d+/gi, " ");
     txt = txt.replace(/\s+(?:[A-ZÁÉÍÓÚÑÜ.]+\s+){1,8}SUBDIRECTOR\s*\(A\).*$/i, " ");
     txt = txt.replace(/Se expide en.*$/i, " ");
     txt = txt.replace(/\s+/g, " ").trim();
+    console.log(`[extraccion] SenaParser: texto ${antesLimpieza}→${txt.length} chars tras limpieza. REGISTRO antes: ${/REGISTRO/i.test(texto)}, después: ${/REGISTRO/i.test(txt)}`);
 
     // 2. Marcadores: uno por competencia (nota, evaluación y horas viven en el marcador).
     const marcas: { inicio: number; fin: number; nota: string; evaluacion: string; ih: number }[] = [];
@@ -120,6 +121,10 @@ export class SenaParser implements Extractor {
     }
     if (marcas.length === 0) {
       console.warn("[extraccion] SenaParser: no se encontraron marcadores de competencias.");
+      console.warn("[extraccion] SenaParser debug: texto tiene", txt.length, "chars. REGISTRO:", /REGISTRO/i.test(txt), "COMPETENCIAS:", /COMPETENCIAS/i.test(txt));
+      // Mostrar dónde aparece "COMPETENCIAS" en el texto (para ver si REGISTRO está cerca)
+      const idxC = txt.indexOf("COMPETENCIAS");
+      if (idxC >= 0) console.warn("[extraccion] SenaParser: contexto cerca de COMPETENCIAS:", txt.substring(Math.max(0, idxC - 30), idxC + 50));
       return [];
     }
 
@@ -163,6 +168,7 @@ export class SenaParser implements Extractor {
         semestre_origen: null,
         tipo: "competencia",
         metadatos: { resultados_aprendizaje: ras },
+        intensidadHoraria: marcas[k].ih,
       });
     }
 
