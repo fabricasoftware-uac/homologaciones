@@ -139,8 +139,10 @@ export async function decidirVinculos(args: {
     void guardarDecision(supabase, hashes[i], pensumId, decision, "regla", ignorarCache);
   }
 
-  // ── Nivel 2 · Vectores: candidatas Top-N por unidad pendiente ──
-  const pendientes: { idx: number; candidatas: AsignaturaDestino[] }[] = [];
+  // ── Nivel 2 · Vectores: candidatas Top-N por unidad pendiente (con su similitud coseno, que
+  // además sirve de RED si el LLM no está disponible) ──
+  type Candidata = { asignatura: AsignaturaDestino; similitud: number };
+  const pendientes: { idx: number; candidatas: Candidata[] }[] = [];
   const sinEmbedding: number[] = [];
   for (let i = 0; i < unidades.length; i++) {
     if (decisiones.has(i)) continue;
@@ -155,9 +157,14 @@ export async function decidirVinculos(args: {
         p_embedding: JSON.stringify(emb),
         p_top_n: TOP_N_CANDIDATOS,
       });
-      const candidatas = (((data as { id: string }[] | null) ?? [])
-        .map((r) => porId.get(r.id))
-        .filter(Boolean) ?? []) as AsignaturaDestino[];
+      const candidatas = ((data as { id: string; similitud: number }[] | null) ?? [])
+        .map((r) => {
+          const asignatura = porId.get(r.id);
+          return asignatura
+            ? { asignatura, similitud: Math.round(Number(r.similitud) * 100) }
+            : null;
+        })
+        .filter((c): c is Candidata => c !== null);
       if (candidatas.length === 0) {
         sinEmbedding.push(i); // el pensum no tiene embeddings todavía: va por el camino legacy
         continue;
@@ -176,16 +183,22 @@ export async function decidirVinculos(args: {
   // estable. Trade-off consciente: el dedup interno del lote puede quitarle una candidata a una
   // unidad si otra del mismo lote la reclama con más similitud (impureza menor del caché); la
   // restricción global del caso se aplica al final de todos modos.
+  // Lotes donde la IA NO estuvo disponible: sus unidades caen a la red de similitud vectorial al
+  // final. OJO: no van al camino legacy (una llamada aún más grande contra el mismo proveedor caído)
+  // ni se cachean como decisión negativa — eso convertía un rate-limit pasajero en un "no homologa
+  // nada" permanente y el caso quedaba sin ninguna relación.
+  const fallidasLLM: { idx: number; candidatas: Candidata[] }[] = [];
+
   for (let p = 0; p < pendientes.length; p += LOTE_LLM) {
     const lote = pendientes.slice(p, p + LOTE_LLM);
 
     const union: AsignaturaDestino[] = [];
     const vistos = new Set<string>();
     for (const { candidatas } of lote) {
-      for (const a of candidatas) {
-        if (vistos.has(a.id)) continue;
-        vistos.add(a.id);
-        union.push(a);
+      for (const { asignatura } of candidatas) {
+        if (vistos.has(asignatura.id)) continue;
+        vistos.add(asignatura.id);
+        union.push(asignatura);
       }
     }
 
@@ -199,6 +212,11 @@ export async function decidirVinculos(args: {
         union.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
         true, // múltiples por origen dentro del lote: la restricción real (SENA o no) va en el greedy global
       );
+      if (vinculos === null) {
+        // La IA no respondió: NO es un "no homologa"; estas unidades van a la red vectorial.
+        fallidasLLM.push(...lote);
+        continue;
+      }
 
       const porUnidad = new Map<number, DecisionUnidad>();
       for (const v of vinculos) {
@@ -215,8 +233,8 @@ export async function decidirVinculos(args: {
         void guardarDecision(supabase, hashes[idx], pensumId, decision, "ia", ignorarCache);
       }
     } catch (e) {
-      console.warn("[motor] Falló un microlote LLM; esas unidades van por legacy:", e);
-      for (const { idx } of lote) sinEmbedding.push(idx);
+      console.warn("[motor] Falló un microlote LLM; esas unidades van a la red vectorial:", e);
+      fallidasLLM.push(...lote);
     }
   }
 
@@ -233,23 +251,55 @@ export async function decidirVinculos(args: {
       asignaturas.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
       esSena,
     );
-    const porUnidad = new Map<number, DecisionUnidad>();
-    for (const v of vinculos) {
-      const idxGlobal = sinEmbedding[v.materia];
-      if (idxGlobal === undefined || !asignaturas[v.asignatura]) continue;
-      const lista = porUnidad.get(idxGlobal) ?? [];
-      lista.push({ asignatura_id: asignaturas[v.asignatura].id, similitud: v.similitud, razon: v.razon });
-      porUnidad.set(idxGlobal, lista);
-    }
-    for (const i of sinEmbedding) {
-      const decision = porUnidad.get(i) ?? [];
-      decisiones.set(i, decision);
-      void guardarDecision(supabase, hashes[i], pensumId, decision, "ia", ignorarCache);
+    if (vinculos === null) {
+      // Sin IA y sin embeddings no hay nada que proponer para estas unidades; quedan sin decisión
+      // (y SIN cachear) para que el próximo procesamiento vuelva a intentarlo.
+      console.warn(`[motor] IA no disponible para ${sinEmbedding.length} unidades legacy; quedan sin propuesta.`);
+    } else {
+      const porUnidad = new Map<number, DecisionUnidad>();
+      for (const v of vinculos) {
+        const idxGlobal = sinEmbedding[v.materia];
+        if (idxGlobal === undefined || !asignaturas[v.asignatura]) continue;
+        const lista = porUnidad.get(idxGlobal) ?? [];
+        lista.push({ asignatura_id: asignaturas[v.asignatura].id, similitud: v.similitud, razon: v.razon });
+        porUnidad.set(idxGlobal, lista);
+      }
+      for (const i of sinEmbedding) {
+        const decision = porUnidad.get(i) ?? [];
+        decisiones.set(i, decision);
+        void guardarDecision(supabase, hashes[i], pensumId, decision, "ia", ignorarCache);
+      }
     }
   }
 
+  // ── Red vectorial: si el LLM no estuvo disponible, la similitud coseno propone directo ──
+  // Es una sugerencia degradada pero útil (los embeddings ya ubicaron las candidatas correctas casi
+  // siempre): el asesor la revisa como cualquier otra. NO se cachea — el siguiente caso del programa
+  // debe volver a intentar el juicio del LLM, que sí razona sobre el contenido.
+  if (fallidasLLM.length > 0) {
+    const UMBRAL_VECTORIAL = 75;
+    let conRed = 0;
+    for (const { idx, candidatas } of fallidasLLM) {
+      const decision: DecisionUnidad = candidatas
+        .filter((c) => c.similitud >= UMBRAL_VECTORIAL)
+        .slice(0, 3)
+        .map((c) => ({
+          asignatura_id: c.asignatura.id,
+          similitud: c.similitud,
+          razon: "Sugerencia por similitud semántica (la IA de emparejamiento no respondió)",
+        }));
+      if (decision.length > 0) {
+        decisiones.set(idx, decision);
+        conRed++;
+      }
+    }
+    console.warn(
+      `[motor] IA de emparejamiento caída para ${fallidasLLM.length} unidades: ${conRed} rescatadas por similitud vectorial (sin cachear).`,
+    );
+  }
+
   console.log(
-    `[motor] Decisiones: ${stats.cache} caché · ${stats.regla} regla · ${stats.llm} LLM en microlotes de ${LOTE_LLM} · ${stats.legacy} legacy (de ${unidades.length} unidades).`,
+    `[motor] Decisiones: ${stats.cache} caché · ${stats.regla} regla · ${stats.llm} LLM en microlotes de ${LOTE_LLM} · ${stats.legacy} legacy · ${fallidasLLM.length} sin IA (de ${unidades.length} unidades).`,
   );
 
   // ── Resolución global del caso: cada asignatura destino se homologa a lo sumo UNA vez; cada

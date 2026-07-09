@@ -13,8 +13,9 @@
 //
 // Estos tipos también deberían reflejar las tablas que creemos en Supabase.
 
-// Espejo del enum rol_usuario de la migración 0001.
-export type Rol = "estudiante" | "admin";
+// Espejo del enum rol_usuario (migración 0001 + roles de la 0028: asesor revisa los casos que el
+// admin le asigna; verificador gestiona la inscripción de los casos aprobados).
+export type Rol = "estudiante" | "admin" | "asesor" | "verificador";
 
 // El usuario tal como lo muestra la app: su nombre y su rol. Vive en la tabla `perfil`,
 // enlazada 1:1 con auth.users.

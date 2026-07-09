@@ -3,6 +3,7 @@ import { IconBook as BookOpen, IconFileCheck as FileCheck2 } from "@tabler/icons
 import { crearClienteServidor } from "@/lib/supabase/servidor";
 import { EncabezadoPagina } from "@/components/encabezado";
 import { GestorPlanPdf } from "./gestor-plan";
+import { NuevaCarrera, AccionesCarrera } from "./gestor-carreras";
 import { PensumEditable, type AsignaturaEditable } from "./pensum-editable";
 
 // Planes académicos (admin): tarjetas con las carreras de la Autónoma del Cauca, su pensum
@@ -21,12 +22,21 @@ type PensumCard = {
 
 export default async function PaginaCarreras() {
   const supabase = crearClienteServidor();
-  const { data } = await supabase
-    .from("pensum")
-    .select("id, carrera, archivo_pdf, asignatura (id, nombre, codigo, creditos, semestre)")
-    .order("carrera");
+  const [{ data }, { data: casosData }] = await Promise.all([
+    supabase
+      .from("pensum")
+      .select("id, carrera, archivo_pdf, asignatura (id, nombre, codigo, creditos, semestre)")
+      .order("carrera"),
+    // Cuántos casos apuntan a cada carrera: decide si se puede eliminar (y el aviso del diálogo).
+    supabase.from("caso").select("pensum_destino_id"),
+  ]);
 
   const pensums = (data ?? []) as unknown as PensumCard[];
+  const casosPorPensum = new Map<string, number>();
+  for (const c of (casosData ?? []) as { pensum_destino_id: string | null }[]) {
+    if (!c.pensum_destino_id) continue;
+    casosPorPensum.set(c.pensum_destino_id, (casosPorPensum.get(c.pensum_destino_id) ?? 0) + 1);
+  }
 
   return (
     <div className="bg-slate-50 dark:bg-slate-950">
@@ -37,7 +47,16 @@ export default async function PaginaCarreras() {
       />
 
       <main className="p-4 sm:p-8">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 @3xl:grid-cols-2 gap-5">
+        <div className="max-w-5xl mx-auto space-y-5">
+          <div className="flex justify-end">
+            <NuevaCarrera />
+          </div>
+          {pensums.length === 0 && (
+            <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-10">
+              No hay carreras todavía. Crea la primera con “Nueva carrera”.
+            </p>
+          )}
+          <div className="grid grid-cols-1 @3xl:grid-cols-2 gap-5">
           {pensums.map((pensum, i) => {
             const asignaturas = pensum.asignatura ?? [];
             const creditos = asignaturas.reduce((suma, a) => suma + a.creditos, 0);
@@ -68,6 +87,12 @@ export default async function PaginaCarreras() {
                       <FileCheck2 className="w-3.5 h-3.5" /> PDF
                     </span>
                   )}
+                  <AccionesCarrera
+                    pensumId={pensum.id}
+                    carrera={pensum.carrera}
+                    asignaturas={asignaturas.length}
+                    casos={casosPorPensum.get(pensum.id) ?? 0}
+                  />
                 </div>
 
                 <PensumEditable pensumId={pensum.id} asignaturas={asignaturas} />
@@ -78,6 +103,7 @@ export default async function PaginaCarreras() {
               </div>
             );
           })}
+          </div>
         </div>
       </main>
     </div>

@@ -2,6 +2,7 @@ import { getDocumentProxy, renderPageAsImage } from "unpdf";
 
 import { llamarGroq, llamarGroqVision } from "./cliente";
 import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
+import { extraerTextoEstructurado } from "@/lib/pdf/extraer-estructurado";
 
 // Extracción del PLAN DE ESTUDIOS (pensum) de una carrera. Dos caminos:
 //   - extraerAsignaturasDePensum(texto): para PDFs con capa de texto (lo normal).
@@ -17,7 +18,7 @@ export type AsignaturaExtraida = {
 };
 
 const FORMA =
-  'Responde ÚNICAMENTE un objeto JSON: {"asignaturas": [{"nombre": "...", "codigo": null, "creditos": 3, "semestre": 1}]}';
+  'Responde ÚNICAMENTE un objeto JSON COMPACTO (una sola línea, sin sangrías ni saltos de línea): {"asignaturas": [{"nombre": "...", "codigo": null, "creditos": 3, "semestre": 1}]}';
 
 const SISTEMA = `Eres un extractor de planes de estudio (pensum) universitarios. Recibes el TEXTO de un PDF con el plan de estudios de una carrera, reconstruido en orden visual: los campos de un mismo renglón van separados por " | " y puede venir dividido en secciones "--- COLUMNA N ---" o "--- PÁGINA N ---".
 
@@ -37,8 +38,8 @@ Lee las imágenes y extrae TODAS las asignaturas del plan. Para cada una: nombre
 No inventes asignaturas. Ignora encabezados, totales y notas al pie. ${FORMA}`;
 
 // Cuántas páginas recorremos por visión. Va UNA página por request (el modelo admite máx 3 imágenes y
-// varias páginas grandes juntas exceden el límite de tokens/min), así que esto no es imágenes-por-
-// llamada sino páginas totales. 20 = paridad con la extracción de certificados.
+// varias páginas grandes juntas exceden el límite de tokens/min). Un pensum de 10 semestres pueden ser
+// 15-20 páginas con formato institucional; 20 cubre cualquier plan de estudios colombiano.
 const MAX_PAGINAS_VISION = 20;
 
 // Tamaño máximo de cada trozo de texto que se envía a la IA. Un plan grande se trocea por secciones
@@ -46,11 +47,14 @@ const MAX_PAGINAS_VISION = 20;
 // fusionan y deduplican. Así ningún semestre queda fuera por truncamiento.
 //
 // PRESUPUESTO: el tier gratuito de Groq limita a 8.000 tokens por request (TPM), y max_tokens de
-// SALIDA cuenta contra ese límite. 8.000 chars de entrada (~2.300 tokens) + system (~400) + 4.000 de
-// salida ≈ 6.700, con margen. Con 8192 de salida el request pedía ~9.800 y Groq devolvía 413 en
-// TODOS los modelos.
-const LIMITE_TROZO = 8000;
-const MAX_TOKENS_SALIDA = 4000;
+// SALIDA cuenta contra ese límite: 6.000 chars de entrada (~1.750 tokens) + system (~450) + 5.000
+// de salida ≈ 7.200, con margen. Además los modelos de la cadena RAZONAN y ese razonamiento (aunque
+// vaya oculto) también descuenta de la salida: con 4.000 un pensum denso de una sola página (50+
+// asignaturas) se TRUNCABA (json_validate_failed en Groq, JSON cortado en Gemini → 0 filas). Por lo
+// mismo el prompt exige JSON COMPACTO (el pretty-printed duplica los tokens de salida) y a Gemini
+// se le apaga el thinking (sinRazonar).
+const LIMITE_TROZO = 6000;
+const MAX_TOKENS_SALIDA = 5000;
 
 function aEnteroPositivoONull(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === "") return null;
@@ -128,25 +132,65 @@ function partirPorLineas(seccion: string): string[] {
   return partes;
 }
 
-async function extraerDeTrozo(trozo: string): Promise<AsignaturaExtraida[]> {
+// Devuelve NULL cuando ningún proveedor respondió (rate-limit / caída): el llamador decide si
+// reintenta o descarta TODO. Confundirlo con [] hacía que un pensum quedara guardado A MEDIAS
+// (los trozos que sí respondieron) y el plan aparecía con 1 o 7 semestres en vez de completo.
+async function extraerDeTrozo(trozo: string): Promise<AsignaturaExtraida[] | null> {
   const mensajes = [
     { role: "system" as const, content: SISTEMA },
     { role: "user" as const, content: trozo },
   ];
+  // Groq: espera generosa ante 429 (los requests de extracción son grandes y Groq suele pedir
+  // 4-6s; la server action tiene maxDuration 60) y razonamiento al mínimo en gpt-oss (la tarea es
+  // mecánica; con el default, el razonamiento se comía max_tokens y el JSON salía vacío/truncado).
+  // Gemini no comparte el límite de 8k tokens/request de Groq: se le da presupuesto de sobra
+  // (16k) y se le DEJA el thinking encendido — sin razonar duplicaba bloques enteros del plan
+  // (asignaturas repetidas corridas de semestre); con thinking y sin riesgo de truncado, lee bien.
   const contenido =
-    (await llamarGroq(mensajes, { json: true, maxTokens: MAX_TOKENS_SALIDA })) ??
-    (await llamarGemini(mensajes, { json: true, maxTokens: MAX_TOKENS_SALIDA }));
+    (await llamarGroq(mensajes, {
+      json: true,
+      maxTokens: MAX_TOKENS_SALIDA,
+      topeEsperaMs: 10000,
+      esfuerzoRazonamiento: "low",
+    })) ?? (await llamarGemini(mensajes, { json: true, maxTokens: 16000 }));
+  if (contenido === null) return null;
   return parsearAsignaturas(contenido);
 }
 
-// Camino normal: PDF con texto. Trocea el texto (sin truncarlo), extrae cada trozo por separado y
-// fusiona los resultados. Antes se recortaba a 12k chars y los semestres finales de planes grandes
-// nunca llegaban al modelo.
-export async function extraerAsignaturasDePensum(texto: string): Promise<AsignaturaExtraida[]> {
+const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Camino normal: PDF con capa de texto. El texto se RECONSTRUYE en orden visual (renglones y
+// columnas por coordenadas: los pensums en cuadrícula llegan revueltos del content-stream y la IA
+// perdía semestres enteros), se trocea sin truncarlo y se extrae cada trozo por separado; los
+// resultados se fusionan y deduplican.
+export async function extraerAsignaturasDePensum(bytes: Uint8Array): Promise<AsignaturaExtraida[]> {
+  let texto = "";
+  try {
+    texto = (await extraerTextoEstructurado(bytes)).texto;
+  } catch {
+    texto = "";
+  }
+  if (texto.trim().length < 30) return []; // sin capa de texto: que el llamador caiga a visión
+
   const trozos = trocearTexto(texto);
   const asignaturas: AsignaturaExtraida[] = [];
   for (const [i, trozo] of trozos.entries()) {
-    const parciales = await extraerDeTrozo(trozo);
+    let parciales = await extraerDeTrozo(trozo);
+    if (parciales === null) {
+      // Proveedores saturados: una pausa suele bastar (el TPM de Groq se libera por minuto).
+      console.warn(`[pensum] trozo ${i + 1}/${trozos.length} sin respuesta de la IA; reintento en 6s...`);
+      await dormir(6000);
+      parciales = await extraerDeTrozo(trozo);
+    }
+    if (parciales === null) {
+      // TODO-O-NADA: si un trozo no se pudo leer, el pensum quedaría INCOMPLETO (semestres
+      // enteros por fuera) y reemplazaría al anterior como si estuviera bien. Mejor descartar el
+      // camino texto: el llamador sigue con visión y, si tampoco, conserva lo que había y avisa.
+      console.error(
+        `[pensum] El trozo ${i + 1}/${trozos.length} no respondió tras el reintento; se descarta la extracción por texto para no guardar un pensum a medias.`,
+      );
+      return [];
+    }
     if (trozos.length > 1) {
       console.log(`[pensum] trozo ${i + 1}/${trozos.length}: ${parciales.length} asignaturas`);
     }
@@ -164,6 +208,25 @@ function claveNombre(nombre: string): string {
     .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// Señal de que la extracción salió mal: el MISMO nombre repetido en varios semestres, muchas veces.
+// Pasa cuando el PDF trae una capa de texto fantasma o columnas intercaladas y el modelo emite el
+// plan dos veces corrido de semestre (Inglés I en S3 y S7, etc.). Un plan real repite poquísimos
+// nombres entre semestres (las Electivas van numeradas). El llamador debe descartar y probar visión.
+export function extraccionSospechosa(lista: AsignaturaExtraida[]): boolean {
+  // Un plan de estudios real siempre abarca varios semestres: si todo quedó en uno, el modelo leyó
+  // solo un pedazo del documento (guardarlo reemplazaría el pensum completo por ese fragmento).
+  if (lista.length > 0 && new Set(lista.map((a) => a.semestre)).size < 2) return true;
+
+  const semestresPorNombre = new Map<string, Set<number>>();
+  for (const a of lista) {
+    const clave = claveNombre(a.nombre);
+    if (!semestresPorNombre.has(clave)) semestresPorNombre.set(clave, new Set());
+    semestresPorNombre.get(clave)!.add(a.semestre);
+  }
+  const repetidos = [...semestresPorNombre.values()].filter((s) => s.size > 1).length;
+  return repetidos >= 5;
 }
 
 // Quita asignaturas repetidas (mismo nombre + semestre), por si dos trozos/páginas solapan contenido.

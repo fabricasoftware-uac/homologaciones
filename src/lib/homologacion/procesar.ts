@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { llamarGemini, generarEmbeddings } from "@/lib/gemini/cliente";
-import { extraerYNormalizar, type UnidadAcademicaNormalizada } from "@/lib/extraccion";
+import {
+  extraerYNormalizar,
+  detectarInstitucion,
+  type UnidadAcademicaNormalizada,
+} from "@/lib/extraccion";
 import { decidirVinculos } from "./motor";
 
 // Orquestador del pipeline de homologación (Fases 4 + 5). Corre como "el sistema" (cliente con la
@@ -71,7 +75,11 @@ export async function procesarCaso(
   let metodoExtraccion: string;
   let tipoInstitucion: string;
 
-  const previa = await buscarExtraccionPrevia(supabase, hashDocumento, casoId);
+  // El reuso exige que el TIPO de institución detectado coincida: el mismo PDF procesado antes bajo
+  // "SENA" (mal etiquetado) dejó unidades interpretadas como competencias (créditos ÷48, semestres
+  // borrados); reusarlas para un caso universitario propaga la corrupción.
+  const tipoDetectado = detectarInstitucion(filaCaso.institucion_origen_nombre ?? "");
+  const previa = await buscarExtraccionPrevia(supabase, hashDocumento, casoId, tipoDetectado);
   if (previa) {
     unidades = previa.unidades;
     embsUnidades = previa.embsUnidades;
@@ -212,6 +220,7 @@ async function buscarExtraccionPrevia(
   supabase: ReturnType<typeof crearClienteServicio>,
   hashDocumento: string,
   casoActualId: string,
+  tipoDetectado: string,
 ): Promise<{
   casoId: string;
   metodo: string;
@@ -224,6 +233,9 @@ async function buscarExtraccionPrevia(
       .from("caso")
       .select("id, metodo_extraccion, tipo_institucion")
       .eq("hash_documento", hashDocumento)
+      // Solo reusamos extracciones interpretadas con el MISMO tipo de institución: la lectura SENA
+      // (horas→créditos, sin semestres) y la universitaria no son intercambiables.
+      .eq("tipo_institucion", tipoDetectado)
       .neq("id", casoActualId)
       .not("metodo_extraccion", "is", null)
       .order("creado_en", { ascending: false })

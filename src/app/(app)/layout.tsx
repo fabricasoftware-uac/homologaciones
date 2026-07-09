@@ -35,8 +35,10 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
       {/* El marco (sidebar colapsable + header móvil) es cliente: necesita estado para ocultar/mostrar
           el menú. El layout resuelve el perfil y la marca, y se los entrega. */}
       <AppShell perfil={perfil} marca={marca}>{children}</AppShell>
-      {/* Solo el admin: avisos en vivo + auto-actualización de la bandeja. */}
-      {perfil.rol === "admin" && <EscuchaCasos />}
+      {/* Staff con bandeja: avisos en vivo + auto-actualización (la RLS filtra lo que cada rol ve). */}
+      {(perfil.rol === "admin" || perfil.rol === "asesor" || perfil.rol === "verificador") && (
+        <EscuchaCasos />
+      )}
     </>
   );
 }

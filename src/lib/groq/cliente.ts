@@ -69,6 +69,15 @@ export type OpcionesGroq = {
   temperatura?: number;
   json?: boolean; // pide la respuesta en formato JSON (response_format: json_object)
   maxTokens?: number; // máximo de tokens de salida (útil para respuestas largas como SENA)
+  // Cuánto aguantar la espera que pide un 429 antes de saltar al siguiente modelo. El default
+  // (TOPE_ESPERA_MS) está pensado para llamadas interactivas; la EXTRACCIÓN de un pensum corre en
+  // una server action con maxDuration 60 y le conviene esperar los ~4-6s que Groq suele pedir
+  // (los requests grandes casi nunca piden milisegundos).
+  topeEsperaMs?: number;
+  // reasoning_effort para los modelos gpt-oss: en tareas mecánicas (extraer listas a JSON) "low"
+  // evita que el razonamiento se coma el presupuesto de max_tokens y la respuesta salga truncada
+  // (el json_validate_failed con failed_generation vacío era exactamente eso).
+  esfuerzoRazonamiento?: "low" | "medium" | "high";
 };
 
 type IntentoResultado =
@@ -99,6 +108,10 @@ async function intentarModelo(
         // con payloads grandes como el de SENA). "hidden" hace que razonen por dentro y entreguen SOLO
         // el JSON → estable. Es el mismo fix que ya usa llamarGroqVision.
         ...(/gpt-oss|qwen/.test(modelo) ? { reasoning_format: "hidden" } : {}),
+        // Solo gpt-oss soporta reasoning_effort en Groq; en otros modelos el parámetro daría 400.
+        ...(opciones.esfuerzoRazonamiento && /gpt-oss/.test(modelo)
+          ? { reasoning_effort: opciones.esfuerzoRazonamiento }
+          : {}),
         ...(opciones.json ? { response_format: { type: "json_object" } } : {}),
         ...(opciones.maxTokens ? { max_tokens: opciones.maxTokens } : {}),
         messages: mensajes,
@@ -151,7 +164,7 @@ export async function llamarGroq(
       // libera en el acto). Si la espera es larga o se acaban los reintentos, pasamos al siguiente.
       if (
         resultado.esperaMs != null &&
-        resultado.esperaMs <= TOPE_ESPERA_MS &&
+        resultado.esperaMs <= (opciones.topeEsperaMs ?? TOPE_ESPERA_MS) &&
         intento < MAX_REINTENTOS_429
       ) {
         console.warn(`[groq] ${modelo} rate-limited; reintento en ${resultado.esperaMs}ms...`);

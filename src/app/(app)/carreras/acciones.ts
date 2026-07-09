@@ -3,12 +3,13 @@
 import { revalidatePath } from "next/cache";
 
 import { crearClienteServidor } from "@/lib/supabase/servidor";
-import { extraerTextoEstructurado } from "@/lib/pdf/extraer-estructurado";
 import {
   extraerAsignaturasDePensum,
   extraerAsignaturasPorVision,
+  extraccionSospechosa,
   type AsignaturaExtraida,
 } from "@/lib/groq/extraer-pensum";
+import { parsearPensum } from "@/lib/extraccion/pensum-parser";
 
 // Gestión del PDF del plan de estudios de cada carrera (solo admin; la RLS del bucket 'planes' y de
 // la tabla pensum lo autorizan).
@@ -69,44 +70,51 @@ async function regenerarAsignaturas(
   pensumId: string,
   bytes: Uint8Array,
 ): Promise<{ ok: boolean; detalle: string }> {
-  // 1) Por TEXTO (PDFs con capa de texto, lo normal). El texto va RECONSTRUIDO en orden visual
-  // (renglones y columnas por coordenadas): los pensums en cuadrícula llegaban revueltos a la IA y
-  // perdía semestres enteros.
-  let texto = "";
-  try {
-    const estructurado = await extraerTextoEstructurado(bytes);
-    texto = estructurado.texto;
-  } catch {
-    texto = "";
-  }
-
+  // 1) Parser determinístico posicional (0 tokens) para el formato institucional en cuadrícula.
+  //    SE AUTO-VALIDA: si el layout no calza o su salida huele a basura, devuelve [] y seguimos.
   let asignaturas: AsignaturaExtraida[] = [];
-  if (texto.trim().length >= 30) {
-    asignaturas = await extraerAsignaturasDePensum(texto);
+  try {
+    asignaturas = await parsearPensum(bytes);
+  } catch (error) {
+    console.error("[pensum] Falló el parser determinístico, probando IA:", error);
   }
 
-  // 2) Si el PDF no tiene texto (escaneo) o el texto no dio asignaturas, lo leemos por VISIÓN:
-  // renderizamos las páginas a imagen y un modelo multimodal las interpreta (como un OCR con IA).
+  // 2) Fallback: IA sobre el texto reconstruido en orden visual. Su salida también se revisa: con
+  // capas de texto fantasma o columnas intercaladas el modelo emite el plan DUPLICADO corrido de
+  // semestre; eso se descarta y se prueba visión, que lee la IMAGEN y no sufre esos artefactos.
+  if (asignaturas.length === 0) {
+    try {
+      asignaturas = await extraerAsignaturasDePensum(bytes);
+      if (asignaturas.length > 0 && extraccionSospechosa(asignaturas)) {
+        console.warn("[pensum] La extracción por texto salió sospechosa (nombres repetidos entre semestres); probando visión.");
+        asignaturas = [];
+      }
+    } catch (error) {
+      console.error("[pensum] Falló la extracción por IA:", error);
+    }
+  }
+
+  // 3) Si el PDF no tiene texto (escaneo) o el texto no dio asignaturas confiables, lo leemos por
+  // VISIÓN: renderizamos las páginas a imagen y un modelo multimodal las interpreta (OCR con IA).
   let viaVision = false;
   if (asignaturas.length === 0) {
     try {
       asignaturas = await extraerAsignaturasPorVision(bytes);
+      if (asignaturas.length > 0 && extraccionSospechosa(asignaturas)) {
+        console.warn("[pensum] La extracción por visión también salió sospechosa; se descarta.");
+        asignaturas = [];
+      }
       viaVision = asignaturas.length > 0;
     } catch (error) {
       console.error("[pensum] Falló la extracción por visión", error);
     }
   }
 
-  const semestres = new Set(asignaturas.map((a) => a.semestre)).size;
-  console.log(
-    `[pensum] extracción${viaVision ? " por visión" : " por texto"}: ${asignaturas.length} asignaturas en ${semestres} semestres`,
-  );
-
   if (asignaturas.length === 0) {
     return {
       ok: false,
       detalle:
-        "No pudimos detectar asignaturas en el PDF (ni por texto ni leyendo la imagen). Se conservaron las asignaturas anteriores; revisa el archivo o crea las asignaturas manualmente.",
+        "No pudimos leer las asignaturas del PDF con confianza (ni por texto ni leyendo la imagen). Se conservaron las asignaturas anteriores; revisa el archivo o crea las asignaturas manualmente.",
     };
   }
 
@@ -145,12 +153,90 @@ async function regenerarAsignaturas(
       detalle: "El PDF se guardó, pero hubo un problema al registrar las asignaturas extraídas.",
     };
   }
+  const semestres = new Set(asignaturas.map((a) => a.semestre)).size;
   return {
     ok: true,
     detalle: `Se cargaron ${filas.length} asignaturas en ${semestres} semestres${
       viaVision ? " (leídas de la imagen del PDF)" : ""
     }.`,
   };
+}
+
+// ── Gestión de carreras (el catálogo de pensums) ──
+// El admin tiene control total del catálogo: crear una carrera nueva, renombrarla (si la institución
+// le cambia el nombre) o eliminarla. La RLS "Solo admin gestiona pensums" autoriza con su sesión.
+
+export async function crearCarrera(formData: FormData): Promise<{ error: string } | void> {
+  const nombre = String(formData.get("nombre") ?? "").trim();
+  if (!nombre) return { error: "Escribe el nombre de la carrera." };
+
+  const supabase = crearClienteServidor();
+  const { error } = await supabase.from("pensum").insert({ carrera: nombre });
+  if (error) {
+    return {
+      error: error.code === "23505" ? "Ya existe una carrera con ese nombre." : "No se pudo crear la carrera.",
+    };
+  }
+  revalidatePath("/carreras");
+  revalidatePath("/homologar"); // el estudiante elige carrera allí
+}
+
+export async function renombrarCarrera(formData: FormData): Promise<{ error: string } | void> {
+  const pensumId = String(formData.get("pensumId") ?? "");
+  const nombre = String(formData.get("nombre") ?? "").trim();
+  if (!pensumId) return { error: "Carrera no válida." };
+  if (!nombre) return { error: "Escribe el nombre de la carrera." };
+
+  const supabase = crearClienteServidor();
+  const { error } = await supabase.from("pensum").update({ carrera: nombre }).eq("id", pensumId);
+  if (error) {
+    return {
+      error: error.code === "23505" ? "Ya existe una carrera con ese nombre." : "No se pudo renombrar la carrera.",
+    };
+  }
+  revalidatePath("/carreras");
+  revalidatePath("/homologar");
+}
+
+// Elimina una carrera completa: su pensum, sus asignaturas (con los vínculos que las referencian),
+// el caché de decisiones y el PDF del plan. Se BLOQUEA si hay casos apuntando a la carrera: esos
+// estudios (abiertos o cerrados) perderían su destino; primero hay que resolverlos o borrarlos.
+export async function eliminarCarrera(formData: FormData): Promise<{ error: string } | void> {
+  const pensumId = String(formData.get("pensumId") ?? "");
+  if (!pensumId) return { error: "Carrera no válida." };
+
+  const supabase = crearClienteServidor();
+
+  const { count } = await supabase
+    .from("caso")
+    .select("id", { count: "exact", head: true })
+    .eq("pensum_destino_id", pensumId);
+  if ((count ?? 0) > 0) {
+    return {
+      error: `No se puede eliminar: ${count} caso${count === 1 ? " usa" : "s usan"} esta carrera. Elimina o reasigna esos casos primero.`,
+    };
+  }
+
+  // Orden por FKs: vínculos → decisiones cacheadas → asignaturas → PDF del bucket → pensum.
+  const { data: asigs } = await supabase.from("asignatura").select("id").eq("pensum_id", pensumId);
+  const idsAsigs = ((asigs as { id: string }[] | null) ?? []).map((r) => r.id);
+  if (idsAsigs.length > 0) {
+    await supabase.from("vinculo").delete().in("asignatura_id", idsAsigs);
+  }
+  await supabase.from("decision_matching").delete().eq("pensum_id", pensumId);
+  await supabase.from("asignatura").delete().eq("pensum_id", pensumId);
+
+  const { data: fila } = await supabase.from("pensum").select("archivo_pdf").eq("id", pensumId).single();
+  const ruta = (fila as { archivo_pdf: string | null } | null)?.archivo_pdf;
+  if (ruta) {
+    await supabase.storage.from("planes").remove([ruta]);
+  }
+
+  const { error } = await supabase.from("pensum").delete().eq("id", pensumId);
+  if (error) return { error: "No se pudo eliminar la carrera." };
+
+  revalidatePath("/carreras");
+  revalidatePath("/homologar");
 }
 
 // ── Gestión manual de asignaturas del pensum ──

@@ -13,7 +13,7 @@ import {
 import { crearClienteServidor } from "@/lib/supabase/servidor";
 import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { obtenerConfiguracion } from "@/lib/marca/configuracion";
-import type { EstadoCaso } from "@/types";
+import type { EstadoCaso, Rol } from "@/types";
 import {
   EstudioHomologacion,
   type MateriaStudio,
@@ -47,6 +47,9 @@ type CasoDetalle = {
   solicitante_nombre: string | null;
   solicitante_celular: string | null;
   solicitante_correo: string | null;
+  asesor_id: string | null;
+  inscripcion_estado: string;
+  nota_verificador: string | null;
   pensum: { carrera: string; archivo_pdf: string | null } | null;
 };
 
@@ -64,7 +67,7 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
   const { data: casoData } = await supabase
     .from("caso")
     .select(
-      "id, institucion_origen_nombre, estado, semestre_sugerido, pensum_destino_id, archivo_pdf, nota_admin, nota_interna, decidido_en, decididoPor:decidido_por (nombre), solicitante_nombre, solicitante_celular, solicitante_correo, pensum:pensum_destino_id (carrera, archivo_pdf)",
+      "id, institucion_origen_nombre, estado, semestre_sugerido, pensum_destino_id, archivo_pdf, nota_admin, nota_interna, decidido_en, decididoPor:decidido_por (nombre), solicitante_nombre, solicitante_celular, solicitante_correo, asesor_id, inscripcion_estado, nota_verificador, pensum:pensum_destino_id (carrera, archivo_pdf)",
     )
     .eq("id", params.id)
     .single();
@@ -88,7 +91,7 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
         .order("semestre"),
       supabase
         .from("vinculo")
-        .select("id, materia_origen_id, asignatura_id, similitud, razon, estado")
+        .select("id, materia_origen_id, asignatura_id, similitud, razon, estado, matriculado")
         .eq("caso_id", params.id),
     ]);
 
@@ -120,16 +123,16 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
 
   const asignaturas: AsignaturaStudio[] = (asignaturasData ?? []) as unknown as AsignaturaStudio[];
 
-  const vinculos: VinculoStudio[] = (
-    (vinculosData ?? []) as {
-      id: string;
-      materia_origen_id: string;
-      asignatura_id: string;
-      similitud: number;
-      razon: string | null;
-      estado: VinculoStudio["estado"];
-    }[]
-  ).map((v) => ({
+  const vinculosCrudos = (vinculosData ?? []) as {
+    id: string;
+    materia_origen_id: string;
+    asignatura_id: string;
+    similitud: number;
+    razon: string | null;
+    estado: VinculoStudio["estado"];
+    matriculado: boolean;
+  }[];
+  const vinculos: VinculoStudio[] = vinculosCrudos.map((v) => ({
     id: v.id,
     materiaOrigenId: v.materia_origen_id,
     asignaturaId: v.asignatura_id,
@@ -137,6 +140,8 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
     razon: v.razon,
     estado: v.estado,
   }));
+  // Para el checklist de matrícula del verificador (solo aplica a vínculos aprobados).
+  const matriculadoPorVinculo = new Map(vinculosCrudos.map((v) => [v.id, v.matriculado] as const));
 
   const uiCaso = ESTADO_CASO_UI[caso.estado];
   const cerrado = caso.estado === "aprobado" || caso.estado === "rechazado";
@@ -189,15 +194,48 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
     }),
   );
 
-  // Homologaciones aprobadas con sus nombres (para el resumen del caso cerrado).
+  // Homologaciones aprobadas con sus nombres (para el resumen del caso cerrado y el checklist de
+  // matrícula del verificador).
   const nombreMateria = new Map(materias.map((m) => [m.id, m.nombre] as const));
   const nombreAsignatura = new Map(asignaturas.map((a) => [a.id, a.nombre] as const));
   const homologaciones = vinculos
     .filter((v) => v.estado === "aprobado")
     .map((v) => ({
+      vinculoId: v.id,
       materia: nombreMateria.get(v.materiaOrigenId) ?? "—",
       asignatura: nombreAsignatura.get(v.asignaturaId) ?? "—",
+      matriculado: matriculadoPorVinculo.get(v.id) ?? false,
     }));
+
+  // Quién mira el caso. El middleware ya limitó /casos al staff; el rol decide los extras: el admin
+  // asigna asesor en el estudio, y admin/verificador gestionan la inscripción de los aprobados.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: perfilData } = user
+    ? await supabase.from("perfil").select("rol").eq("id", user.id).single()
+    : { data: null };
+  const rol: Rol = (perfilData as { rol: Rol } | null)?.rol ?? "estudiante";
+
+  // Lista de asesores para el selector de asignación (solo la necesita el admin).
+  let asignacion: { asesores: { id: string; nombre: string }[]; asesorId: string | null } | null =
+    null;
+  if (rol === "admin") {
+    const { data: asesoresData } = await servicio
+      .from("perfil")
+      .select("id, nombre")
+      .eq("rol", "asesor")
+      .order("nombre");
+    asignacion = {
+      asesores: (asesoresData ?? []) as { id: string; nombre: string }[],
+      asesorId: caso.asesor_id,
+    };
+  }
+
+  const gestion =
+    caso.estado === "aprobado" && (rol === "admin" || rol === "verificador")
+      ? { estado: caso.inscripcion_estado, nota: caso.nota_verificador, materias: homologaciones }
+      : null;
 
   return (
     <div className="h-[calc(100dvh-4rem)] md:h-dvh flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
@@ -308,6 +346,8 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
           urlCertificado={urlCertificado}
           urlPlan={urlPlan}
           plantillas={plantillas}
+          puedeEditar={rol !== "verificador"}
+          gestion={gestion}
         />
       ) : (
         <EstudioHomologacion
@@ -327,6 +367,7 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
           urlPlan={urlPlan}
           notaMinima={cfg.notaMinima}
           plantillas={plantillas}
+          asignacion={asignacion}
         />
       )}
     </div>

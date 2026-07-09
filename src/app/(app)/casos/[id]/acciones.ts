@@ -206,8 +206,124 @@ export async function finalizarCaso(formData: FormData) {
     console.error("[correo] No se pudo notificar al estudiante", casoId, error);
   }
 
+  // Caso aprobado -> campana dirigida a los verificadores, que gestionan la inscripción. Best-effort.
+  if (veredicto === "aprobado") {
+    try {
+      const servicio = crearClienteServicio();
+      const { data: verificadores } = await servicio
+        .from("perfil")
+        .select("id")
+        .eq("rol", "verificador");
+      const filas = ((verificadores as { id: string }[] | null) ?? []).map((v) => ({
+        tipo: "caso_aprobado",
+        titulo: "Homologación aprobada",
+        cuerpo: "Un caso quedó listo para gestionar la inscripción del estudiante.",
+        caso_id: casoId,
+        destinatario_id: v.id,
+      }));
+      if (filas.length > 0) await servicio.from("notificacion").insert(filas);
+    } catch (error) {
+      console.error("[notificacion] No se pudo avisar a los verificadores", casoId, error);
+    }
+  }
+
   revalidatePath(`/casos/${casoId}`);
   revalidatePath("/casos");
+}
+
+// ── Roles: asignación de casos y gestión de inscripción ──
+
+async function rolDeQuienLlama(): Promise<{ id: string; rol: string } | null> {
+  const sesion = crearClienteServidor();
+  const {
+    data: { user },
+  } = await sesion.auth.getUser();
+  if (!user) return null;
+  const { data } = await sesion.from("perfil").select("rol").eq("id", user.id).single();
+  const rol = (data as { rol: string } | null)?.rol;
+  return rol ? { id: user.id, rol } : null;
+}
+
+// Asigna (o des-asigna) el caso a un asesor. Solo el admin; usa el cliente de servicio y avisa al
+// asesor por su campana con una notificación dirigida.
+export async function asignarCaso(formData: FormData): Promise<{ error: string } | void> {
+  const quien = await rolDeQuienLlama();
+  if (quien?.rol !== "admin") return { error: "Solo el administrador asigna casos." };
+
+  const casoId = String(formData.get("casoId") ?? "");
+  const asesorId = String(formData.get("asesorId") ?? "");
+  if (!casoId) return { error: "Caso no válido." };
+
+  const servicio = crearClienteServicio();
+  const { error } = await servicio
+    .from("caso")
+    .update({ asesor_id: asesorId || null })
+    .eq("id", casoId);
+  if (error) return { error: "No se pudo asignar el caso." };
+
+  if (asesorId) {
+    // Best-effort: la asignación ya quedó; la campana es un aviso.
+    await servicio.from("notificacion").insert({
+      tipo: "caso_asignado",
+      titulo: "Caso asignado",
+      cuerpo: "El administrador te asignó un caso de homologación para revisar.",
+      caso_id: casoId,
+      destinatario_id: asesorId,
+    });
+  }
+
+  revalidatePath(`/casos/${casoId}`);
+  revalidatePath("/casos");
+}
+
+// Guarda la gestión de inscripción de un caso APROBADO: estado del contacto con el estudiante,
+// nota del verificador y qué materias aprobadas ya quedaron matriculadas. La escribe el verificador
+// (o el admin) vía cliente de servicio: la RLS del verificador es de solo lectura a propósito.
+export async function guardarMatricula(formData: FormData): Promise<{ error: string } | void> {
+  const quien = await rolDeQuienLlama();
+  if (!quien || (quien.rol !== "admin" && quien.rol !== "verificador")) {
+    return { error: "No autorizado." };
+  }
+
+  const casoId = String(formData.get("casoId") ?? "");
+  const estado = String(formData.get("inscripcionEstado") ?? "");
+  const nota = String(formData.get("notaVerificador") ?? "").trim();
+  const matriculados = String(formData.get("matriculados") ?? "")
+    .split(",")
+    .filter(Boolean);
+  if (!casoId) return { error: "Caso no válido." };
+  if (!["pendiente", "contactado", "inscrito"].includes(estado)) {
+    return { error: "Estado de inscripción no válido." };
+  }
+
+  const servicio = crearClienteServicio();
+  // Solo sobre casos aprobados: la gestión de inscripción no aplica a casos en revisión.
+  const { data: casoRow } = await servicio.from("caso").select("estado").eq("id", casoId).single();
+  if ((casoRow as { estado?: string } | null)?.estado !== "aprobado") {
+    return { error: "Este caso no está aprobado." };
+  }
+
+  const { error } = await servicio
+    .from("caso")
+    .update({ inscripcion_estado: estado, nota_verificador: nota || null })
+    .eq("id", casoId);
+  if (error) return { error: "No se pudo guardar la gestión." };
+
+  // Checklist de matrícula: marca los indicados y desmarca el resto de los aprobados del caso.
+  await servicio
+    .from("vinculo")
+    .update({ matriculado: false })
+    .eq("caso_id", casoId)
+    .eq("estado", "aprobado");
+  if (matriculados.length > 0) {
+    await servicio
+      .from("vinculo")
+      .update({ matriculado: true })
+      .eq("caso_id", casoId)
+      .in("id", matriculados);
+  }
+
+  revalidatePath(`/casos/${casoId}`);
 }
 
 // Reabre un caso ya cerrado para volver a editarlo en el estudio (vuelve a 'en_revision').

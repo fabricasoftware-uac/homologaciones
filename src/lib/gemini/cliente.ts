@@ -48,6 +48,10 @@ export type OpcionesGemini = {
   temperatura?: number;
   json?: boolean;
   maxTokens?: number;
+  // Apaga el "thinking" de los modelos 2.5 (thinkingBudget: 0). CLAVE en extracciones con salida
+  // JSON larga: el thinking DESCUENTA de maxOutputTokens, así que un pensum de 50+ asignaturas
+  // salía truncado (el modelo gastaba el presupuesto pensando y cortaba el JSON a la mitad).
+  sinRazonar?: boolean;
 };
 
 export async function llamarGemini(
@@ -71,6 +75,9 @@ export async function llamarGemini(
   }
   if (opciones.maxTokens) {
     config.maxOutputTokens = opciones.maxTokens;
+  }
+  if (opciones.sinRazonar) {
+    config.thinkingConfig = { thinkingBudget: 0 };
   }
 
   const contents = conversation.map((m) => ({

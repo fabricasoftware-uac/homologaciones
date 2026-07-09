@@ -44,11 +44,17 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = {
     { to: "/usuarios", icon: Users, label: "Usuarios" },
     { to: "/configuracion", icon: Settings, label: "Configuración" },
   ],
+  // El asesor trabaja solo su bandeja (la RLS le muestra únicamente los casos asignados).
+  asesor: [{ to: "/casos", icon: Briefcase, label: "Casos de estudio" }],
+  // El verificador gestiona la inscripción de los casos aprobados (la RLS le muestra solo esos).
+  verificador: [{ to: "/casos", icon: Briefcase, label: "Casos aprobados" }],
 };
 
 const ETIQUETA_ROL: Record<Rol, string> = {
   estudiante: "Estudiante",
   admin: "Administrador",
+  asesor: "Asesor",
+  verificador: "Verificador",
 };
 
 const RESORTE = { type: "spring", stiffness: 520, damping: 42 } as const;
@@ -86,7 +92,9 @@ export function Sidebar({
         <span className="flex-1 min-w-0 text-base font-semibold text-white tracking-tight truncate">
           {marca.nombre}
         </span>
-        {perfil.rol === "admin" && <Campana />}
+        {(perfil.rol === "admin" || perfil.rol === "asesor" || perfil.rol === "verificador") && (
+          <Campana />
+        )}
         {onOcultar && (
           <button
             type="button"
@@ -157,8 +165,9 @@ export function Sidebar({
           </div>
           {/* Tema y cerrar sesión: mismas cajas (w-8 h-8 centradas) para que queden alineados. */}
           <BotonTema className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/5 shrink-0" />
-          {/* Solo el admin inicia sesión; al invitado un "cerrar sesión" lo confundiría. */}
-          {perfil.rol === "admin" && (
+          {/* Todo el STAFF (admin, asesor, verificador) inicia sesión y necesita poder salir; al
+              estudiante/invitado un "cerrar sesión" lo confundiría. */}
+          {(perfil.rol === "admin" || perfil.rol === "asesor" || perfil.rol === "verificador") && (
             <form action={cerrarSesion} className="flex shrink-0">
               <button
                 type="submit"

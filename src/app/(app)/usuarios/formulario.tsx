@@ -5,7 +5,7 @@ import { useFormState, useFormStatus } from "react-dom";
 import { IconUserPlus as UserPlus } from "@tabler/icons-react";
 import { sileo } from "sileo";
 
-import { crearAdmin, type EstadoUsuario } from "./acciones";
+import { crearUsuarioStaff, type EstadoUsuario } from "./acciones";
 
 function BotonCrear() {
   const { pending } = useFormStatus();
@@ -16,7 +16,7 @@ function BotonCrear() {
       className="inline-flex items-center gap-2 bg-marca text-marca-fg px-5 py-2.5 rounded-xl font-bold hover:bg-marca-hover disabled:opacity-60 transition-colors shadow-sm"
     >
       <UserPlus className="w-4 h-4" />
-      {pending ? "Creando…" : "Crear administrador"}
+      {pending ? "Creando…" : "Crear usuario"}
     </button>
   );
 }
@@ -25,14 +25,14 @@ const inputClase =
   "w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none transition-all text-slate-700 dark:text-slate-200 focus:border-marca focus:ring-2 focus:ring-marca/30";
 
 export function FormularioUsuario() {
-  const [estado, accion] = useFormState<EstadoUsuario, FormData>(crearAdmin, null);
+  const [estado, accion] = useFormState<EstadoUsuario, FormData>(crearUsuarioStaff, null);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     if (estado && "error" in estado) {
       sileo.error({ title: "No se pudo crear", description: estado.error });
     } else if (estado && "ok" in estado) {
-      sileo.success({ title: "Administrador creado", description: "Ya puede iniciar sesión." });
+      sileo.success({ title: "Usuario creado", description: "Ya puede iniciar sesión." });
       formRef.current?.reset();
     }
   }, [estado]);
@@ -53,11 +53,23 @@ export function FormularioUsuario() {
           <input id="email" name="email" type="email" required placeholder="admin@institucion.edu" autoComplete="off" className={inputClase} />
         </div>
       </div>
-      <div>
-        <label htmlFor="password" className="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">
-          Contraseña <span className="text-slate-400 dark:text-slate-500 font-normal">(mínimo 8 caracteres)</span>
-        </label>
-        <input id="password" name="password" type="password" required minLength={8} autoComplete="new-password" className={inputClase} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div>
+          <label htmlFor="password" className="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">
+            Contraseña <span className="text-slate-400 dark:text-slate-500 font-normal">(mínimo 8 caracteres)</span>
+          </label>
+          <input id="password" name="password" type="password" required minLength={8} autoComplete="new-password" className={inputClase} />
+        </div>
+        <div>
+          <label htmlFor="rol" className="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">
+            Rol
+          </label>
+          <select id="rol" name="rol" required defaultValue="asesor" className={inputClase}>
+            <option value="admin">Administrador — ve y gestiona todo</option>
+            <option value="asesor">Asesor — revisa los casos que se le asignen</option>
+            <option value="verificador">Verificador — gestiona la inscripción de aprobados</option>
+          </select>
+        </div>
       </div>
       <div className="flex justify-end">
         <BotonCrear />

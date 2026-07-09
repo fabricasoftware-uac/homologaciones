@@ -23,9 +23,34 @@ export type {
 const parserSena = new SenaParser();
 const parserIA = new ParserIA();
 
-function detectarInstitucion(institucionOrigen: string): TipoInstitucion {
+export function detectarInstitucion(institucionOrigen: string): TipoInstitucion {
   if (/sena/i.test(institucionOrigen)) return "sena";
   return "universitaria";
+}
+
+// Saneo del RESCATE del camino SENA (cuando el SenaParser no encontró competencias y extrajo el
+// ParserIA genérico). Antes se forzaba tipo="competencia" a ciegas y, si el documento en realidad
+// era un certificado UNIVERSITARIO con la institución mal escrita (decía "SENA"), el normalizador
+// trataba los créditos como horas (÷48: 3 créditos → 1) y borraba los semestres. Si los números
+// parecen créditos universitarios (chicos), el documento ES universitario; las competencias SENA
+// van en horas (48+).
+function sanearRescateSena(unidades: MateriaExtraida[]): {
+  unidades: MateriaExtraida[];
+  tipoReal: TipoInstitucion;
+} {
+  const maxCreditos = Math.max(0, ...unidades.map((u) => u.creditos ?? 0));
+  if (unidades.length > 0 && maxCreditos > 0 && maxCreditos <= 15) {
+    console.warn(
+      "[extraccion] La institución decía SENA pero el documento trae créditos universitarios; se trata como universitario.",
+    );
+    return { unidades, tipoReal: "universitaria" };
+  }
+  // Sí parece SENA: competencias sin semestre (si el modelo inventó uno, se descarta; con semestre
+  // las tarjetas de origen aparecen repartidas en "Semestre 1/2/3..." sin sentido).
+  return {
+    unidades: unidades.map((u) => ({ ...u, tipo: "competencia", semestre_origen: null })),
+    tipoReal: "sena",
+  };
 }
 
 function seleccionarExtractor(tipo: TipoInstitucion): Extractor {
@@ -53,16 +78,11 @@ export async function extraerUnidadesAcademicas(
 
     if (!calidad.usable && bytesPdf) {
       console.warn(`[extraccion] SENA con texto no usable (${calidad.motivo}) → visión SENA (OCR).`);
-      // El parseo genérico de visión marca tipo "materia": lo corregimos a "competencia" para que
-      // el normalizador aplique la lógica SENA (nombre limpio, horas → créditos, RAs).
-      const unidades = (await extraerMateriasPorVision(bytesPdf, true)).map((u) => ({
-        ...u,
-        tipo: "competencia",
-        // Las competencias SENA no tienen semestre: si el modelo inventó uno, se descarta (con
-        // semestre las tarjetas de origen aparecen repartidas en "Semestre 1/2/3..." sin sentido).
-        semestre_origen: null,
-      }));
-      return { unidades, tipoInstitucion, metodo: "VisionSENA" };
+      // El parseo genérico de visión marca tipo "materia": el saneo decide si de verdad es SENA
+      // (competencias en horas) o un certificado universitario mal etiquetado como SENA.
+      const crudas = await extraerMateriasPorVision(bytesPdf, true);
+      const { unidades, tipoReal } = sanearRescateSena(crudas);
+      return { unidades, tipoInstitucion: tipoReal, metodo: "VisionSENA" };
     }
 
     const unidades = await parserSena.extraer(textoPdf);
@@ -71,16 +91,14 @@ export async function extraerUnidadesAcademicas(
     }
 
     console.warn(
-      "[extraccion] SenaParser no encontró competencias (¿cambió el formato del SENA?); fallback a ParserIA.",
+      "[extraccion] SenaParser no encontró competencias (¿el formato cambió, o no es un documento SENA?); fallback a ParserIA.",
     );
-    // Mismo saneo que en visión: el extractor genérico asigna semestres, pero una constancia SENA
-    // no los tiene — se fuerzan a null y el tipo a competencia.
-    const rescatadas = (await parserIA.extraer(textoPdf, bytesPdf)).map((u) => ({
-      ...u,
-      tipo: "competencia",
-      semestre_origen: null,
-    }));
-    return { unidades: rescatadas, tipoInstitucion, metodo: `${parserSena.nombre}→${parserIA.nombre}` };
+    const rescate = sanearRescateSena(await parserIA.extraer(textoPdf, bytesPdf));
+    return {
+      unidades: rescate.unidades,
+      tipoInstitucion: rescate.tipoReal,
+      metodo: `${parserSena.nombre}→${parserIA.nombre}`,
+    };
   }
 
   const unidades = await extractor.extraer(textoPdf, bytesPdf);

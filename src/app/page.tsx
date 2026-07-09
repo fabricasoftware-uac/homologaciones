@@ -20,6 +20,9 @@ export default async function Home() {
     if (rol === "admin") {
       redirect("/inicio");
     }
+    if (rol === "asesor" || rol === "verificador") {
+      redirect("/casos");
+    }
   }
 
   // Cantidad de carreras activas, para el contador animado del hero.

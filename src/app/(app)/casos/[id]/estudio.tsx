@@ -18,6 +18,7 @@ import {
   IconPlus as Plus,
   IconPencil as Pencil,
   IconChecks as Checks,
+  IconSearch as Search,
 } from "@tabler/icons-react";
 import { motion, AnimatePresence } from "motion/react";
 import clsx from "clsx";
@@ -42,6 +43,7 @@ import {
   editarMateria,
   eliminarMateria,
 } from "./acciones";
+import { AsignarAsesor } from "./asignar-asesor";
 import { BotonReprocesar } from "./boton-reprocesar";
 import { SelectorPlantilla } from "./selector-plantilla";
 
@@ -88,6 +90,8 @@ type Props = {
   urlPlan: string | null;
   notaMinima: number;
   plantillas: { id: string; texto: string }[];
+  // Solo para el admin: asignar el caso a un asesor (los asesores no ven este selector).
+  asignacion?: { asesores: { id: string; nombre: string }[]; asesorId: string | null } | null;
 };
 
 // Color del badge de similitud: por debajo de 85% conviene que el admin lo revise con lupa (la IA
@@ -137,6 +141,7 @@ export function EstudioHomologacion({
   urlPlan,
   notaMinima,
   plantillas,
+  asignacion,
 }: Props) {
   const [pendiente, iniciar] = useTransition();
   // Selección de materias de origen. Normalmente UNA; con el modo "Seleccionar varias" activo se
@@ -182,6 +187,15 @@ export function EstudioHomologacion({
   // Materias de origen en orden alfabético. Como el agrupado por semestre conserva el orden de
   // entrada, cada semestre queda ordenado de la A a la Z. localeCompare "es" respeta tildes y la ñ.
   const materiasOrdenadas = [...materias].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+
+  // Buscador por columna: para cuando el asesor ya se sabe la materia y no quiere recorrer la
+  // lista. Filtra por nombre o código, sin distinguir mayúsculas ni tildes. Las tarjetas
+  // SELECCIONADAS siguen visibles aunque no coincidan: si buscaste una materia, la marcaste y
+  // luego buscas su destino, tu selección no "desaparece" a mitad del enlace.
+  const [filtroOrigen, setFiltroOrigen] = useState("");
+  const [filtroDestino, setFiltroDestino] = useState("");
+  const materiasFiltradas = filtrar(materiasOrdenadas, filtroOrigen, (id) => origenes.includes(id));
+  const asignaturasFiltradas = filtrar(asignaturas, filtroDestino, (id) => destinos.includes(id));
 
   // Al seleccionar una materia de origen que ya está vinculada, desplazamos la columna derecha
   // hasta su asignatura (puede estar muy abajo). Y al revés, al seleccionar una asignatura.
@@ -437,6 +451,13 @@ export function EstudioHomologacion({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {asignacion && !cerrado && (
+            <AsignarAsesor
+              casoId={caso.id}
+              asesores={asignacion.asesores}
+              asesorId={asignacion.asesorId}
+            />
+          )}
           {urlCertificado && (
             <a
               href={urlCertificado}
@@ -607,6 +628,15 @@ export function EstudioHomologacion({
           iconoClase="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
           acento="text-slate-400 dark:text-slate-500"
           claseRaiz={columnaMovil === "origen" ? "flex md:flex" : "hidden md:flex"}
+          herramientas={
+            <BuscadorColumna
+              valor={filtroOrigen}
+              onCambiar={setFiltroOrigen}
+              placeholder="Buscar materia de origen…"
+              visibles={materiasFiltradas.length}
+              total={materias.length}
+            />
+          }
         >
           {/* Herramientas de la columna origen: alta manual + modo de selección múltiple (para
               vincular VARIAS materias a una sola asignatura de un tiro). */}
@@ -639,7 +669,7 @@ export function EstudioHomologacion({
               institución no aporta a la decisión (y el SENA ni siquiera tiene), y el extractor puede
               asignarlo distinto en cada reproceso: agrupar aquí solo desordenaba la columna. */}
           <div className="space-y-2">
-            {materiasOrdenadas.map((m) => {
+            {materiasFiltradas.map((m) => {
                 // TODOS los vínculos de la materia (una competencia SENA puede cubrir varias
                 // asignaturas): la tarjeta lista cada destino, no solo el primero.
                 const vs = vinculosDeMateria(m.id);
@@ -686,6 +716,9 @@ export function EstudioHomologacion({
             })}
           </div>
           {materias.length === 0 && <Vacio>No se detectaron materias.</Vacio>}
+          {materias.length > 0 && materiasFiltradas.length === 0 && (
+            <Vacio>Ninguna materia coincide con “{filtroOrigen}”.</Vacio>
+          )}
         </Columna>
 
         <Columna
@@ -696,8 +729,17 @@ export function EstudioHomologacion({
           acento="text-marca dark:text-slate-300"
           fondo="bg-slate-50/40 dark:bg-slate-900/40"
           claseRaiz={columnaMovil === "destino" ? "flex md:flex" : "hidden md:flex"}
+          herramientas={
+            <BuscadorColumna
+              valor={filtroDestino}
+              onCambiar={setFiltroDestino}
+              placeholder="Buscar asignatura del plan…"
+              visibles={asignaturasFiltradas.length}
+              total={asignaturas.length}
+            />
+          }
         >
-          {agrupar(asignaturas).map(([sem, items]) => (
+          {agrupar(asignaturasFiltradas).map(([sem, items]) => (
             <GrupoSemestre key={`d-${sem}`} sem={sem}>
               {items.map((a) => {
                 // Una asignatura puede recibir VARIAS materias de origen (homologación 2→1):
@@ -736,6 +778,9 @@ export function EstudioHomologacion({
             </GrupoSemestre>
           ))}
           {asignaturas.length === 0 && <Vacio>Esta carrera no tiene plan cargado aún.</Vacio>}
+          {asignaturas.length > 0 && asignaturasFiltradas.length === 0 && (
+            <Vacio>Ninguna asignatura coincide con “{filtroDestino}”.</Vacio>
+          )}
         </Columna>
       </div>
 
@@ -928,6 +973,79 @@ export function EstudioHomologacion({
   );
 }
 
+// Coincidencia del buscador: minúsculas y sin tildes ("calculo" encuentra "Cálculo"), sobre el
+// nombre y el código. `esSeleccionada` mantiene visibles las tarjetas marcadas.
+function normalizarBusqueda(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
+    .trim();
+}
+
+function filtrar<T extends { id: string; nombre: string; codigo: string | null }>(
+  items: T[],
+  filtro: string,
+  esSeleccionada: (id: string) => boolean,
+): T[] {
+  const consulta = normalizarBusqueda(filtro);
+  if (!consulta) return items;
+  return items.filter(
+    (item) =>
+      esSeleccionada(item.id) ||
+      normalizarBusqueda(item.nombre).includes(consulta) ||
+      (item.codigo !== null && normalizarBusqueda(item.codigo).includes(consulta)),
+  );
+}
+
+// Campo de búsqueda de una columna: vive FIJO bajo el encabezado (no se pierde al hacer scroll),
+// muestra "n de m" mientras filtra y se limpia con la X o con Escape.
+function BuscadorColumna({
+  valor,
+  onCambiar,
+  placeholder,
+  visibles,
+  total,
+}: {
+  valor: string;
+  onCambiar: (v: string) => void;
+  placeholder: string;
+  visibles: number;
+  total: number;
+}) {
+  return (
+    <div className="relative">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
+      <input
+        type="text"
+        value={valor}
+        onChange={(e) => onCambiar(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCambiar("");
+        }}
+        placeholder={placeholder}
+        className="w-full pl-9 pr-24 py-2 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30 transition-colors"
+      />
+      {valor && (
+        <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+          <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">
+            {visibles} de {total}
+          </span>
+          <button
+            type="button"
+            onClick={() => onCambiar("")}
+            title="Limpiar búsqueda (Esc)"
+            aria-label="Limpiar búsqueda"
+            className="p-1 rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Columna({
   etiqueta,
   titulo,
@@ -936,6 +1054,7 @@ function Columna({
   acento,
   fondo,
   claseRaiz,
+  herramientas,
   children,
 }: {
   etiqueta: string;
@@ -945,6 +1064,8 @@ function Columna({
   acento: string;
   fondo?: string;
   claseRaiz?: string;
+  // Barra fija bajo el encabezado (p. ej. el buscador): no se desplaza con la lista.
+  herramientas?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -961,6 +1082,11 @@ function Columna({
           <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate leading-none">{titulo}</h2>
         </div>
       </div>
+      {herramientas && (
+        <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+          {herramientas}
+        </div>
+      )}
       <div className="flex-1 md:overflow-y-auto p-5 space-y-6">{children}</div>
     </div>
   );

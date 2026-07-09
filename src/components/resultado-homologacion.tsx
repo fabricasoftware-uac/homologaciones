@@ -55,6 +55,36 @@ function ordinal(n: number) {
   return `${n}.º`;
 }
 
+// Agrupa las filas (una por vínculo) por materia de origen, conservando el orden de entrada: el
+// grupo aparece donde aparecía su primera fila (las páginas ya ordenan por semestre destino) y sus
+// asignaturas quedan en ese mismo orden.
+type GrupoMateria = {
+  nombre: string;
+  creditos: number | null;
+  horas: number | null;
+  filas: HomologacionFila[];
+};
+
+function agruparPorMateria(homologadas: HomologacionFila[]): GrupoMateria[] {
+  const grupos = new Map<string, GrupoMateria>();
+  for (const h of homologadas) {
+    // Sin materia de origen (borrada), la fila va sola: se agrupa por su propio id.
+    const clave = h.materia_origen?.nombre ?? `sin-materia-${h.id}`;
+    const grupo = grupos.get(clave);
+    if (grupo) {
+      grupo.filas.push(h);
+    } else {
+      grupos.set(clave, {
+        nombre: h.materia_origen?.nombre ?? "—",
+        creditos: h.materia_origen?.creditos ?? null,
+        horas: h.materia_origen?.horas ?? null,
+        filas: [h],
+      });
+    }
+  }
+  return [...grupos.values()];
+}
+
 export function ResultadoHomologacion({
   estado,
   semestre,
@@ -199,7 +229,11 @@ export function ResultadoHomologacion({
             </a>
           )}
 
-          {/* Comparación origen -> Autónoma. */}
+          {/* Comparación origen -> Autónoma, AGRUPADA por materia de origen: una competencia SENA
+              puede cubrir varias asignaturas y como lista plana (una fila por vínculo, ordenada por
+              semestre destino) sus filas quedaban regadas y parecía relacionada con una sola. Aquí
+              la materia va UNA vez a la izquierda y todas sus asignaturas apiladas a la derecha —
+              lo mismo que ve el asesor en el estudio. */}
           {homologadas.length > 0 && (
             <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
               <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-3 px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -208,18 +242,23 @@ export function ResultadoHomologacion({
                 <span className="truncate text-right">Te vale en la Autónoma</span>
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {homologadas.map((h) => (
+                {agruparPorMateria(homologadas).map((grupo) => (
                   <div
-                    key={h.id}
+                    key={grupo.filas[0].id}
                     className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-3 px-4 py-3 text-sm"
                   >
                     <span className="min-w-0">
-                      <span className="block text-slate-500 dark:text-slate-400 truncate">
-                        {h.materia_origen?.nombre ?? "—"}
+                      <span className="block text-slate-500 dark:text-slate-400 line-clamp-2">
+                        {grupo.nombre}
                       </span>
-                      {h.materia_origen?.horas != null && h.materia_origen.creditos != null && (
+                      {grupo.horas != null && grupo.creditos != null && (
                         <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                          {h.materia_origen.horas} h ≈ {h.materia_origen.creditos} cr
+                          {grupo.horas} h ≈ {grupo.creditos} cr
+                        </span>
+                      )}
+                      {grupo.filas.length > 1 && (
+                        <span className="block text-[11px] font-semibold text-slate-400 dark:text-slate-500">
+                          Cubre {grupo.filas.length} asignaturas
                         </span>
                       )}
                     </span>
@@ -230,15 +269,19 @@ export function ResultadoHomologacion({
                     >
                       <ArrowRight className="w-4 h-4" />
                     </span>
-                    <span className="min-w-0 text-right">
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 block truncate">
-                        {h.asignatura?.nombre ?? "—"}
-                      </span>
-                      {h.asignatura && (
-                        <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                          {ordinal(h.asignatura.semestre)} semestre · {h.asignatura.creditos} cr
+                    <span className="min-w-0 text-right space-y-1.5">
+                      {grupo.filas.map((h) => (
+                        <span key={h.id} className="block">
+                          <span className="font-semibold text-slate-900 dark:text-slate-100 block truncate">
+                            {h.asignatura?.nombre ?? "—"}
+                          </span>
+                          {h.asignatura && (
+                            <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                              {ordinal(h.asignatura.semestre)} semestre · {h.asignatura.creditos} cr
+                            </span>
+                          )}
                         </span>
-                      )}
+                      ))}
                     </span>
                   </div>
                 ))}
