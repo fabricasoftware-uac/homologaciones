@@ -1,6 +1,6 @@
 allowBuilds:
   '@google/genai': true
-  '@tailwindcss/oxide': set this to true or false
-  esbuild: set this to true or false
+  '@tailwindcss/oxide': true
+  esbuild: true
   protobufjs: true
-  sharp: set this to true or false
+  sharp: true

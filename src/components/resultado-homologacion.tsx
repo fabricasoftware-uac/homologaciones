@@ -8,6 +8,8 @@ import {
 } from "@tabler/icons-react";
 
 import type { EstadoCaso } from "@/types";
+import type { DatosGraficas } from "@/lib/graficas/computar-datos";
+import { ResultadoGraficas } from "@/components/resultado-graficas";
 
 // Vista de resultado de una homologación (solo lectura). La comparten el detalle del estudiante con
 // sesión (/mis-homologaciones/[id]) y la página pública de seguimiento por token (/seguimiento/[token]).
@@ -91,12 +93,14 @@ export function ResultadoHomologacion({
   notaAdmin,
   homologadas,
   actaHref,
+  datosGraficas,
 }: {
   estado: EstadoCaso;
   semestre: number | null;
   notaAdmin: string | null;
   homologadas: HomologacionFila[];
   actaHref?: string | null;
+  datosGraficas?: DatosGraficas | null;
 }) {
   const aprobado = estado === "aprobado";
   const esPosible = estado === "en_revision";
@@ -111,7 +115,8 @@ export function ResultadoHomologacion({
   const verde = aprobado;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-5">
+    <div className="max-w-4xl mx-auto space-y-5">
+
       {/* Aviso al INICIO y bien visible: en revisión esto es solo un estimado, no el resultado
           oficial. Va primero para que el estudiante no lo omita. */}
       {esPosible && (
@@ -229,7 +234,12 @@ export function ResultadoHomologacion({
             </a>
           )}
 
-          {/* Comparación origen -> Autónoma, AGRUPADA por materia de origen: una competencia SENA
+          {/* Graficas: progreso, distribucion por semestre y resumen. */}
+          {homologadas.length > 0 && datosGraficas && (
+            <ResultadoGraficas datos={datosGraficas} />
+          )}
+
+          {/* Comparacion origen -> Autonoma, AGRUPADA por materia de origen: una competencia SENA
               puede cubrir varias asignaturas y como lista plana (una fila por vínculo, ordenada por
               semestre destino) sus filas quedaban regadas y parecía relacionada con una sola. Aquí
               la materia va UNA vez a la izquierda y todas sus asignaturas apiladas a la derecha —

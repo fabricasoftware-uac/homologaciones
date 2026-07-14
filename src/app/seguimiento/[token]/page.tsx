@@ -17,6 +17,7 @@ import {
   type HomologacionFila,
   type HomologacionFilaCruda,
 } from "@/components/resultado-homologacion";
+import { computarDatosGraficas } from "@/lib/graficas/computar-datos";
 
 export const metadata: Metadata = {
   title: "Seguimiento de tu homologación",
@@ -39,6 +40,7 @@ type CasoSeguimiento = {
   estado: EstadoCaso;
   semestre_sugerido: number | null;
   nota_admin: string | null;
+  pensum_destino_id: string;
   pensum: { carrera: string } | null;
 };
 
@@ -48,7 +50,7 @@ export default async function PaginaSeguimiento({ params }: { params: { token: s
   const { data: casoData } = await servicio
     .from("caso")
     .select(
-      "id, institucion_origen_nombre, estado, semestre_sugerido, nota_admin, pensum:pensum_destino_id (carrera)",
+      "id, institucion_origen_nombre, estado, semestre_sugerido, nota_admin, pensum_destino_id, pensum:pensum_destino_id (carrera)",
     )
     .eq("token_seguimiento", params.token)
     .single();
@@ -82,6 +84,20 @@ export default async function PaginaSeguimiento({ params }: { params: { token: s
     return (a.asignatura?.nombre ?? "").localeCompare(b.asignatura?.nombre ?? "", "es");
   });
 
+  let datosGraficas = null;
+  if (caso.pensum_destino_id) {
+    const { data: asignaturas } = await servicio
+      .from("asignatura")
+      .select("creditos, semestre")
+      .eq("pensum_id", caso.pensum_destino_id);
+    if (asignaturas && asignaturas.length > 0) {
+      datosGraficas = computarDatosGraficas(
+        asignaturas as { creditos: number; semestre: number }[],
+        homologadas,
+      );
+    }
+  }
+
   const cfg = await obtenerConfiguracion();
 
   return (
@@ -111,6 +127,7 @@ export default async function PaginaSeguimiento({ params }: { params: { token: s
           notaAdmin={caso.nota_admin}
           homologadas={homologadas}
           actaHref={aprobado ? `/seguimiento/${params.token}/acta` : null}
+          datosGraficas={datosGraficas}
         />
       </main>
     </div>
