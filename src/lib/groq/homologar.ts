@@ -22,6 +22,23 @@ export type VinculoSugerido = {
 
 const SIMILITUD_MINIMA = 55;
 
+// Extrae JSON de una respuesta que puede venir con markdown o texto alrededor.
+function extraerJson(texto: string): string | null {
+  // Intento directo
+  try { JSON.parse(texto); return texto; } catch { /* no */ }
+  // Bloque markdown ```json ... ```
+  const md = texto.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (md?.[1]) { try { JSON.parse(md[1]); return md[1]; } catch { /* no */ } }
+  // Primer { al último }
+  const inicio = texto.indexOf("{");
+  const fin = texto.lastIndexOf("}");
+  if (inicio !== -1 && fin > inicio) {
+    const frag = texto.slice(inicio, fin + 1);
+    try { JSON.parse(frag); return frag; } catch { /* no */ }
+  }
+  return null;
+}
+
 const SISTEMA = `Eres un experto en homologación de asignaturas universitarias en Colombia. Recibes un JSON con:
 - materias_origen: las materias o competencias que el estudiante cursó en su institución de origen (cada una con su índice "i").
 - asignaturas_destino: las asignaturas del plan de estudios destino (cada una con su índice "j").
@@ -147,25 +164,41 @@ export async function emparejarMaterias(
 
   // Emparejamiento en la cadena LIGERA (20b primero): así no compite con la extracción por el cupo
   // del 120b. Es una tarea de comparación por índices, que el 20b resuelve bien.
-  const contenido =
+  // Intentar con JSON mode (funciona con universitarios). Si falla (SENA: json_validate_failed),
+  // reintentar sin JSON mode y extraer el JSON manualmente.
+  let contenido =
     (await llamarGroq(
       [
         { role: "system", content: SISTEMA },
         { role: "user", content: JSON.stringify(payload) },
       ],
       { json: true, modelos: MODELOS_LIGEROS },
-    )) ??
-    (await llamarGemini(
+    ));
+  if (contenido === null) {
+    contenido = await llamarGroq(
       [
         { role: "system", content: SISTEMA },
         { role: "user", content: JSON.stringify(payload) },
       ],
-      { json: true, modelos: MODELOS_LIGEROS_GEMINI },
-    ));
+      { json: false, modelos: MODELOS_LIGEROS },
+    );
+  }
+  if (contenido === null) {
+    contenido =
+      (await llamarGemini(
+        [
+          { role: "system", content: SISTEMA },
+          { role: "user", content: JSON.stringify(payload) },
+        ],
+        { json: true, modelos: MODELOS_LIGEROS_GEMINI },
+      ));
+  }
   if (!contenido) return null;
 
   try {
-    const parsed = JSON.parse(contenido) as { vinculos?: unknown[] };
+    const json = extraerJson(contenido);
+    if (!json) return null;
+    const parsed = JSON.parse(json) as { vinculos?: unknown[] };
     const crudos = Array.isArray(parsed.vinculos) ? parsed.vinculos : [];
 
     // Normalizamos y descartamos índices fuera de rango / similitudes bajas.
