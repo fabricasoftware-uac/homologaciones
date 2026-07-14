@@ -96,17 +96,87 @@ export class SenaParser implements Extractor {
   readonly nombre = "SenaParser";
 
   async extraer(texto: string): Promise<MateriaExtraida[]> {
+    const esFormatoNuevo = /COMPETENCIAS\s+EVAL\s+IH/.test(texto) && !/REGISTRO\s+DE\s+COMPETENCIAS\s+EVALUADAS/.test(texto);
+
+    if (esFormatoNuevo) {
+      console.log("[extraccion] SenaParser: detectado formato NUEVO (COMPETENCIAS EVAL IH)");
+      return this.extraerFormatoNuevo(texto);
+    }
+    console.log("[extraccion] SenaParser: usando formato clásico");
+    return this.extraerFormatoClasico(texto);
+  }
+
+  // ── Formato NUEVO (2024+) ──
+  // COMPETENCIAS   EVAL   IH
+  // [Nombre competencia]   [nota]   [horas]
+  // RESULTADOS DE APRENDIZAJE
+  // [RAs en cualquier orden]
+  private extraerFormatoNuevo(texto: string): MateriaExtraida[] {
     let txt = texto.replace(/\s+/g, " ").trim();
 
-    // 1. Limpieza: encabezados de página y cierre (firma + expedición).
-    const antesLimpieza = txt.length;
+    // Limpiar encabezados de página del nuevo formato
+    txt = txt.replace(/S REGIONAL CAUCA\s+SENA:?\s*Una Organización con Conocimiento/gi, " ");
+    txt = txt.replace(/La autenticidad de este documento puede ser verificada en el registro electr[oó]nico que se encuentra en la p[aá]gina web\s+https?:\/\/\S+/gi, " ");
+    txt = txt.replace(/bajo el n[uú]mero\s+[\dA-Z]+\.?/gi, " ");
+    txt = txt.replace(/CERTIFICA/gi, " ");
+    txt = txt.replace(/EL CENTRO DE COMERCIO Y SERVICIOS/gi, " ");
+    txt = txt.replace(/\s+/g, " ").trim();
+
+    // Regex para el nuevo formato:
+    // COMPETENCIAS EVAL IH [nombre] [nota] [horas] RESULTADOS DE APRENDIZAJE [RAs...]
+    const regex = /COMPETENCIAS\s+EVAL\s+IH\s+(.+?)\s+([\d.,]+)\s+(\d+)\s+RESULTADOS\s+DE\s+APRENDIZAJE\s+([\s\S]+?)(?=\s*COMPETENCIAS\s+EVAL\s+IH|$)/g;
+
+    const unidades: MateriaExtraida[] = [];
+    let m: RegExpExecArray | null;
+
+    while ((m = regex.exec(txt)) !== null) {
+      let nombre = m[1].replace(/\s+/g, " ").trim();
+      const notaRaw = m[2].replace(",", ".");
+      const ih = parseInt(m[3], 10);
+      const raTexto = m[4];
+
+      // Saltar bloques que no son competencias reales
+      if (nombre === "RESULTADOS DE APRENDIZAJE ETAPA PRACTICA") continue;
+      if (/registro\s+electr[oó]nico|p[aá]gina\s+web|http/i.test(nombre)) continue;
+
+      // Extraer RAs: vienen numerados pero en cualquier orden (01, 02, 03 o 03, 02, 01...)
+      const ras = raTexto
+        .replace(/\s+/g, " ")
+        .split(/\s+(?=\d{2}\s)/)
+        .map((p) => p.replace(/^\d{2}\s+/, "").trim())
+        .filter((r) => r.length > 10);
+
+      const raFormateado = ras.length > 0
+        ? "\n\nResultados de aprendizaje:\n" + ras.map((r) => `- ${r}`).join("\n")
+        : "";
+
+      unidades.push({
+        nombre: `Competencia:\n${nombre}${raFormateado}`,
+        codigo: null,
+        creditos: ih,
+        nota: "Aprobado",
+        semestre_origen: null,
+        tipo: "competencia",
+        metadatos: { resultados_aprendizaje: ras },
+        intensidadHoraria: ih,
+      });
+    }
+
+    console.log(`[extraccion] SenaParser (formato nuevo) extrajo ${unidades.length} competencias.`);
+    return unidades;
+  }
+
+  // ── Formato CLÁSICO (pre-2024) ──
+  // [Nombre competencia] [nota] [A|D] REGISTRO DE COMPETENCIAS EVALUADAS EVAL IH [horas]
+  // RESULTADOS DE APRENDIZAJE 01 [RA...] 02 [RA...] ...
+  private extraerFormatoClasico(texto: string): MateriaExtraida[] {
+    let txt = texto.replace(/\s+/g, " ").trim();
+
+    // Limpieza: encabezados de página y cierre (firma + expedición).
     txt = txt.replace(/Ministerio de Trabajo.*?Página\s+\d+\s+de\s+\d+/gi, " ");
     txt = txt.replace(/\s+(?:[A-ZÁÉÍÓÚÑÜ.]+\s+){1,8}SUBDIRECTOR\s*\(A\).*$/i, " ");
     txt = txt.replace(/Se expide en.*$/i, " ");
     txt = txt.replace(/\s+/g, " ").trim();
-    console.log(`[extraccion] SenaParser: texto ${antesLimpieza}→${txt.length} chars tras limpieza. REGISTRO antes: ${/REGISTRO/i.test(texto)}, después: ${/REGISTRO/i.test(txt)}`);
-
-    // 2. Marcadores: uno por competencia (nota, evaluación y horas viven en el marcador).
     const marcas: { inicio: number; fin: number; nota: string; evaluacion: string; ih: number }[] = [];
     let m: RegExpExecArray | null;
     MARCADOR.lastIndex = 0;
