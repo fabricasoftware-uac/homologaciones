@@ -163,6 +163,21 @@ export async function procesarCaso(
       if (error) throw error;
     }
 
+    // Si no se generó NINGÚN vínculo teniendo unidades extraídas, la IA probablemente
+    // no respondió. Dejamos nota para el estudiante y NO estimamos semestre (sería
+    // engañoso decir "semestre 1" cuando en realidad la IA no pudo evaluar).
+    if (filasVinculo.length === 0) {
+      await supabase
+        .from("caso")
+        .update({
+          estado: "en_revision",
+          semestre_sugerido: null,
+          nota_admin: "La IA no está disponible en este momento. Un asesor de la Autónoma del Cauca revisará tu caso manualmente y te contactará con el resultado definitivo.",
+        })
+        .eq("id", casoId);
+      return;
+    }
+
     // Estimamos el semestre: usamos Gemini (gemini-2.5-flash-lite) como primera opción, y si no
     // responde, caemos en el algoritmo determinístico de créditos.
     const idsHomologadas = new Set(filasVinculo.map((f) => f.asignatura_id));
