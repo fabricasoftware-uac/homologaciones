@@ -35,7 +35,7 @@ Reglas:
 - Asigna la similitud (0 a 100) según qué tan equivalentes son. Incluye los emparejamientos con similitud de 55 o más.
 - Una materia/competencia de origen PUEDE ser equivalente a VARIAS asignaturas destino si su contenido cubre los objetivos de aprendizaje de cada una. Pero cada asignatura destino se homologa con a lo sumo UNA materia/competencia de origen.
 - Las COMPETENCIAS (formación SENA, traen resultados de aprendizaje) son AMPLIAS: es normal y esperado que UNA sola cubra 2, 3 o más asignaturas destino (p. ej. una competencia de inglés cubre "Inglés I", "Inglés II" y "Inglés III"; una de desarrollo de software cubre "Programación I" y "Programación II"). Con cada competencia, revisa TODAS las asignaturas destino y emite UN vínculo por CADA una que sus resultados de aprendizaje cubran — no te detengas en la primera.
-- Para CADA emparejamiento incluye "razon": una justificación BREVE (máximo 15 palabras, en español) de por qué son equivalentes (p. ej. "ambas cubren cálculo diferencial e integral").
+- Para CADA emparejamiento incluye "razon": una justificación BREVE (máximo 15 palabras, en español) de por qué son equivalentes (p. ej. "ambas cubren cálculo diferencial e integral").\n- La respuesta debe ser un JSON válido.
 
 Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"vinculos": [{"materia": 0, "asignatura": 0, "similitud": 0, "razon": ""}]}`;

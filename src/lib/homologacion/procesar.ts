@@ -348,7 +348,7 @@ async function estimarSemestreConGemini(
     "- Estima PROPORCIONALMENTE: " + pct + "% de " + numSemestres + " semestres = aproximadamente semestre " + Math.max(1, Math.round((pct / 100) * numSemestres)) + ".\n" +
     "- NO importa el orden de los semestres: si hay materias homologadas en semestre 7, el estudiante YA está en ese nivel aunque falten materias de semestre 1.\n" +
     "- Redondea SIEMPRE hacia arriba si estás en duda.\n" +
-    "- Responde ÚNICAMENTE: {\"semestre\": 1, \"razon\": \"breve\"}";
+    "- Responde ÚNICAMENTE un objeto JSON: {\"semestre\": 1, \"razon\": \"breve\"}";
 
   if (esSena) {
     sistema +=
