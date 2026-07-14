@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { llamarGemini, generarEmbeddings } from "@/lib/gemini/cliente";
+import { llamarGroq } from "@/lib/groq/cliente";
+import { llamarGemini } from "@/lib/gemini/cliente";
+import { generarEmbeddings } from "@/lib/embedding";
 import {
   extraerYNormalizar,
   detectarInstitucion,
@@ -165,7 +167,7 @@ export async function procesarCaso(
     // responde, caemos en el algoritmo determinístico de créditos.
     const idsHomologadas = new Set(filasVinculo.map((f) => f.asignatura_id));
     semestreSugerido =
-      (await estimarSemestreConGemini(asignaturas, idsHomologadas)) ??
+      (await estimarSemestreConGemini(asignaturas, idsHomologadas, esSena)) ??
       estimarSemestre(asignaturas, idsHomologadas);
   }
 
@@ -303,13 +305,10 @@ async function buscarExtraccionPrevia(
   }
 }
 
-// Usa Gemini para estimar en qué semestre quedaría el estudiante. Le pasa la lista completa de
-// asignaturas del pensum (organizadas por semestre) y cuáles homologó, y le pide que razone cuál
-// sería el primer semestre que todavía le quedaría por cursar. Si Gemini no responde o devuelve un
-// valor inválido, devuelve null para que el pipeline caiga en el algoritmo determinístico.
 async function estimarSemestreConGemini(
   asignaturas: { id: string; nombre: string; creditos: number; semestre: number }[],
   homologadas: Set<string>,
+  esSena = false,
 ): Promise<number | null> {
   const numSemestres = asignaturas.reduce((max, a) => Math.max(max, a.semestre), 0);
   if (numSemestres === 0) return null;
@@ -326,29 +325,51 @@ async function estimarSemestreConGemini(
     porSemestre.set(a.semestre, agrupado);
   }
 
+  const creditosHomologados = asignaturas
+    .filter((a) => homologadas.has(a.id))
+    .reduce((s, a) => s + a.creditos, 0);
+  const creditosTotales = asignaturas.reduce((s, a) => s + a.creditos, 0);
+  const pct = creditosTotales > 0 ? Math.round((creditosHomologados / creditosTotales) * 100) : 0;
+
   const resumen: string[] = [];
   for (let sem = 1; sem <= numSemestres; sem++) {
     const d = porSemestre.get(sem);
     if (!d) continue;
     resumen.push(
-      `Semestre ${sem} (${d.total} cr totales):\n  Homologadas: ${d.homologadas.join(", ") || "ninguna"}\n  NO homologadas: ${d.noHomologadas.join(", ") || "ninguna"}`,
+      `Semestre ${sem} (${d.total} cr): Homologadas: ${d.homologadas.join(", ") || "ninguna"} | NO: ${d.noHomologadas.join(", ") || "ninguna"}`,
     );
   }
-  const texto = resumen.join("\n\n");
+  const texto = `Créditos homologados: ${creditosHomologados} de ${creditosTotales} (${pct}%)\n\n` + resumen.join("\n");
 
-  const sistema = `Eres un asesor académico experto en homologaciones universitarias en Colombia. Recibes un resumen del plan de estudios organizado por semestre, indicando qué asignaturas homologó el estudiante y cuáles NO. Tu tarea: estimar en qué semestre quedaría el estudiante. Reglas:
-- El estudiante "se salta" un semestre solo si homologó TODAS o CASI TODAS las asignaturas de ese semestre (y los anteriores).
-- Si homologó la mayoría pero le faltan 1 o 2 asignaturas clave de un semestre, normalmente NO se salta ese semestre completo.
-- El resultado es el PRIMER semestre que todavía le quedaría por cursar.
-- Responde ÚNICAMENTE un objeto JSON con esta forma: {"semestre": 1, "razon": "explicación breve en español"}`;
+  let sistema =
+    "Eres un asesor académico experto en homologaciones. Recibes el resumen de un plan de estudios con los créditos homologados por un estudiante y los que NO. Tu tarea: estimar en qué semestre quedaría.\n\n" +
+    "Reglas:\n" +
+    "- El porcentaje de créditos homologados es tu guía PRINCIPAL: " + pct + "% de " + creditosTotales + " créditos en " + numSemestres + " semestres.\n" +
+    "- Estima PROPORCIONALMENTE: " + pct + "% de " + numSemestres + " semestres = aproximadamente semestre " + Math.max(1, Math.round((pct / 100) * numSemestres)) + ".\n" +
+    "- NO importa el orden de los semestres: si hay materias homologadas en semestre 7, el estudiante YA está en ese nivel aunque falten materias de semestre 1.\n" +
+    "- Redondea SIEMPRE hacia arriba si estás en duda.\n" +
+    "- Responde ÚNICAMENTE: {\"semestre\": 1, \"razon\": \"breve\"}";
 
-  const contenido = await llamarGemini(
-    [
-      { role: "system", content: sistema },
-      { role: "user", content: texto },
-    ],
-    { json: true, temperatura: 0, modelos: ["gemini-2.5-flash-lite"] },
-  );
+  if (esSena) {
+    sistema +=
+      "\n\nSENA: Las competencias del SENA se miden en HORAS, no créditos. Una competencia de 1008h cubre muchísimo más que una materia de 3cr. El porcentaje de créditos SUBESTIMA groseramente el nivel real. Sé MUCHO mas gneroso con los semestres al estimado proporcional.";
+  }
+
+  const contenido =
+    (await llamarGroq(
+      [
+        { role: "system", content: sistema },
+        { role: "user", content: texto },
+      ],
+      { json: true, temperatura: 0 },
+    )) ??
+    (await llamarGemini(
+      [
+        { role: "system", content: sistema },
+        { role: "user", content: texto },
+      ],
+      { json: true, temperatura: 0, modelos: ["gemini-2.5-flash-lite"] },
+    ));
 
   if (!contenido) return null;
 
@@ -357,12 +378,12 @@ async function estimarSemestreConGemini(
     const semestre = Number(parsed.semestre);
     if (Number.isInteger(semestre) && semestre >= 1 && semestre <= numSemestres) {
       const razon = typeof parsed.razon === "string" ? parsed.razon.trim() : "";
-      console.log(`[gemini] Semestre estimado: ${semestre}${razon ? ` (${razon})` : ""}`);
+      console.log(`[semestre] Estimado: ${semestre}${razon ? ` (${razon})` : ""}`);
       return semestre;
     }
-    console.warn("[gemini] Semestre estimado inválido:", contenido);
+    console.warn("[semestre] Valor inválido:", contenido);
   } catch {
-    console.warn("[gemini] Semestre estimado: respuesta no era JSON válido:", contenido);
+    console.warn("[semestre] JSON inválido:", contenido);
   }
 
   return null;
