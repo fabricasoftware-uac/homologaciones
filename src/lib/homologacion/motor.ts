@@ -129,14 +129,21 @@ export async function decidirVinculos(args: {
   }
   for (let i = 0; i < unidades.length; i++) {
     if (decisiones.has(i)) continue;
-    const match = porNombre.get(normalizarNombre(unidades[i].nombre));
-    if (!match) continue;
-    const decision: DecisionUnidad = [
-      { asignatura_id: match.id, similitud: SIMILITUD_REGLA, razon: "Nombre equivalente en el plan destino" },
-    ];
-    decisiones.set(i, decision);
-    stats.regla++;
-    void guardarDecision(supabase, hashes[i], pensumId, decision, "regla", ignorarCache);
+    // SENA: saltar regla de nombre. Una competencia SENA que casualmente coincida
+    // con una asignatura no debe quedarse con 1 solo vínculo — debe llegar al LLM
+    // para que evalúe si cubre VARIAS asignaturas.
+    if (!esSena) {
+      const match = porNombre.get(normalizarNombre(unidades[i].nombre));
+      if (match) {
+        const decision: DecisionUnidad = [
+          { asignatura_id: match.id, similitud: SIMILITUD_REGLA, razon: "Nombre equivalente en el plan destino" },
+        ];
+        decisiones.set(i, decision);
+        stats.regla++;
+        void guardarDecision(supabase, hashes[i], pensumId, decision, "regla", ignorarCache);
+        continue;
+      }
+    }
   }
 
   // ── Nivel 2 · Vectores: candidatas Top-N por unidad pendiente (con su similitud coseno, que
@@ -155,7 +162,7 @@ export async function decidirVinculos(args: {
       const { data } = await supabase.rpc("buscar_asignaturas_similares", {
         p_pensum_id: pensumId,
         p_embedding: JSON.stringify(emb),
-        p_top_n: TOP_N_CANDIDATOS,
+        p_top_n: unidades[i].tipo === "competencia" ? 30 : TOP_N_CANDIDATOS,
       });
       const candidatas = ((data as { id: string; similitud: number }[] | null) ?? [])
         .map((r) => {
@@ -210,7 +217,8 @@ export async function decidirVinculos(args: {
           nota: unidades[idx].nota,
         })),
         union.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
-        true, // múltiples por origen dentro del lote: la restricción real (SENA o no) va en el greedy global
+        true, // múltiples por origen
+        esSena, // señal SENA explícita al prompt del LLM
       );
       if (vinculos === null) {
         // La IA no respondió: NO es un "no homologa"; estas unidades van a la red vectorial.

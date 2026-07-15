@@ -20,10 +20,11 @@ function esperaTrasRateLimit(respuesta: Response, detalle: string): number {
 }
 
 const MODELOS: string[] = [
-  "deepseek/deepseek-v4-flash",
+  "deepseek/deepseek-chat-v3-0324 ",
 ];
 
 export const MODELOS_LIGEROS: string[] = [
+  "deepseek/deepseek-chat-v3-0324",
   "openai/gpt-4.1-nano",
 ];
 

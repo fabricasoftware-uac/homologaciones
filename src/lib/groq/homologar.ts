@@ -52,7 +52,7 @@ Reglas:
 - Empareja también por equivalencia temática o de contenido, no solo por texto exacto.
 - Asigna la similitud (0 a 100) según qué tan equivalentes son. Incluye los emparejamientos con similitud de 35 o más.
 - Una materia/competencia de origen PUEDE ser equivalente a VARIAS asignaturas destino si su contenido cubre los objetivos de aprendizaje de cada una. Pero cada asignatura destino se homologa con a lo sumo UNA materia/competencia de origen.
-- Las COMPETENCIAS (formación SENA, traen resultados de aprendizaje) son AMPLIAS: es normal y esperado y OBLIGATORIO si es sena que cubra 2, 3 o más asignaturas destino (p. ej. una competencia de inglés cubre "Inglés I", "Inglés II" y "Inglés III"; una de desarrollo de software cubre "Programación I" y "Programación II"). Con cada competencia, revisa TODAS las asignaturas destino y emite UN vínculo por CADA una que sus resultados de aprendizaje cubran — no te detengas en la primera.
+- Las COMPETENCIAS (formación SENA, traen resultados de aprendizaje) son AMPLIAS: es normal y esperado y OBLIGATORIO si es sena que cubra 2, 3 o más asignaturas destino (p. ej. una competencia de inglés cubre "Inglés I", "Inglés II" y "Inglés III"; una de desarrollo de software cubre "Programación I" y "Programación II"). Con cada competencia, revisa TODAS las asignaturas destino y emite UN vínculo por CADA una que sus resultados de aprendizaje cubran — no te detengas en la primera. Si la materia a homologar destino es muy especializada y es de matemáticas OBLIGATORIO y no está cubierta por la competencia, NO la homologues ej (Calculo 1 si, Calculo 2 no o calculo 3).
 - Para CADA emparejamiento incluye "razon": una justificación BREVE (máximo 15 palabras, en español) de por qué son equivalentes (p. ej. "ambas cubren cálculo diferencial e integral").\n- La respuesta debe ser un JSON válido.
 
 Responde ÚNICAMENTE un objeto JSON con esta forma:
@@ -152,8 +152,15 @@ export async function emparejarMaterias(
   origen: MateriaParaEmparejar[],
   destino: AsignaturaParaEmparejar[],
   permitirMultiplesPorOrigen = false,
+  esSena = false,
 ): Promise<VinculoSugerido[] | null> {
   if (origen.length === 0 || destino.length === 0) return [];
+
+  // Señal SENA explícita: el prompt base ya tiene instrucciones condicionales
+  // ("si es sena..."), pero el LLM debe SABER que este caso ES sena.
+  const promptSistema = esSena
+    ? "IMPORTANTE: Este caso ES del SENA. Las unidades de origen son COMPETENCIAS, no materias tradicionales. Una competencia SENA es AMPLIA, incluye múltiples Resultados de Aprendizaje, y PUEDE y DEBE cubrir VARIAS asignaturas destino — no solo una. Busca TODAS las que tengan cobertura suficiente.\n\n" + SISTEMA
+    : SISTEMA;
 
   const payload = {
     materias_origen: origen.map((m, i) => ({
@@ -177,7 +184,7 @@ export async function emparejarMaterias(
   let contenido =
     (await llamarOpenRouter(
       [
-        { role: "system", content: SISTEMA },
+        { role: "system", content: promptSistema },
         { role: "user", content: JSON.stringify(payload) },
       ],
       { json: true, modelos: MODELOS_LIGEROS_OR },
@@ -185,7 +192,7 @@ export async function emparejarMaterias(
   if (contenido === null) {
     contenido = (await llamarGroq(
       [
-        { role: "system", content: SISTEMA },
+        { role: "system", content: promptSistema },
         { role: "user", content: JSON.stringify(payload) },
       ],
       { json: true, modelos: MODELOS_LIGEROS },
@@ -194,7 +201,7 @@ export async function emparejarMaterias(
   if (contenido === null) {
     contenido = await llamarGroq(
       [
-        { role: "system", content: SISTEMA },
+        { role: "system", content: promptSistema },
         { role: "user", content: JSON.stringify(payload) },
       ],
       { json: false, modelos: MODELOS_LIGEROS },
@@ -204,7 +211,7 @@ export async function emparejarMaterias(
     contenido =
       (await llamarGemini(
         [
-          { role: "system", content: SISTEMA },
+          { role: "system", content: promptSistema },
           { role: "user", content: JSON.stringify(payload) },
         ],
         { json: true, modelos: MODELOS_LIGEROS_GEMINI },
