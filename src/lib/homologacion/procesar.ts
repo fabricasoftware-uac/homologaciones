@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { llamarGroq } from "@/lib/groq/cliente";
+import { llamarOpenRouter } from "@/lib/openrouter/cliente";
 import { llamarGemini } from "@/lib/gemini/cliente";
 import { generarEmbeddings } from "@/lib/embedding";
 import {
@@ -361,16 +362,23 @@ async function estimarSemestreConGemini(
     "Reglas:\n" +
     "- El porcentaje de créditos homologados es tu guía PRINCIPAL: " + pct + "% de " + creditosTotales + " créditos en " + numSemestres + " semestres.\n" +
     "- Estima PROPORCIONALMENTE: " + pct + "% de " + numSemestres + " semestres = aproximadamente semestre " + Math.max(1, Math.round((pct / 100) * numSemestres)) + ".\n" +
-    "- NO importa el orden de los semestres: si hay materias homologadas en semestre 7, el estudiante YA está en ese nivel aunque falten materias de semestre 1.\n" +
+    "- NO importa el orden de los semestres: si hay materias homologadas en semestre 7, el estudiante puede que ya está en ese nivel aunque falten materias de semestre 1, esto depende de los creditos homologados en total.\n" +
     "- Redondea SIEMPRE hacia arriba si estás en duda.\n" +
     "- Responde ÚNICAMENTE un objeto JSON: {\"semestre\": 1, \"razon\": \"breve\"}";
 
   if (esSena) {
     sistema +=
-      "\n\nSENA: Las competencias del SENA se miden en HORAS, no créditos. Una competencia de 1008h cubre muchísimo más que una materia de 3cr. El porcentaje de créditos SUBESTIMA groseramente el nivel real. Sé MUCHO mas gneroso con los semestres al estimado proporcional.";
+      "\n\nSENA: Las competencias del SENA se miden en HORAS, no créditos. Una competencia de 1008h cubre muchísimo más que una materia de 3cr. El porcentaje de créditos SUBESTIMA el nivel real. Sé mas generoso con los semestres al estimado proporcional.";
   }
 
   const contenido =
+    (await llamarOpenRouter(
+      [
+        { role: "system", content: sistema },
+        { role: "user", content: texto },
+      ],
+      { json: true, temperatura: 0 },
+    )) ??
     (await llamarGroq(
       [
         { role: "system", content: sistema },

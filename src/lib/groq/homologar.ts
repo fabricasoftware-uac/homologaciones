@@ -1,4 +1,5 @@
 import { llamarGroq, MODELOS_LIGEROS } from "./cliente";
+import { llamarOpenRouter, MODELOS_LIGEROS as MODELOS_LIGEROS_OR } from "@/lib/openrouter/cliente";
 import { llamarGemini, MODELOS_LIGEROS as MODELOS_LIGEROS_GEMINI } from "@/lib/gemini/cliente";
 
 // Fase 5 · Emparejamiento con IA.
@@ -49,9 +50,9 @@ Reglas:
 - Si los nombres son IGUALES o casi iguales, es una equivalencia segura: emparéjalas con similitud 95-100. NUNCA dejes por fuera una materia cuyo nombre coincide.
 - Ignora diferencias de mayúsculas, tildes y numeración (I/II equivale a 1/2). Ejemplos de equivalencias: "Cálculo I" = "Cálculo Diferencial"; "Programación I" = "Introducción a la Programación" = "Fundamentos de Programación"; "Bases de Datos" = "Sistemas de Información"; "Inglés I" = "Lengua Extranjera I".
 - Empareja también por equivalencia temática o de contenido, no solo por texto exacto.
-- Asigna la similitud (0 a 100) según qué tan equivalentes son. Incluye los emparejamientos con similitud de 55 o más.
+- Asigna la similitud (0 a 100) según qué tan equivalentes son. Incluye los emparejamientos con similitud de 35 o más.
 - Una materia/competencia de origen PUEDE ser equivalente a VARIAS asignaturas destino si su contenido cubre los objetivos de aprendizaje de cada una. Pero cada asignatura destino se homologa con a lo sumo UNA materia/competencia de origen.
-- Las COMPETENCIAS (formación SENA, traen resultados de aprendizaje) son AMPLIAS: es normal y esperado que UNA sola cubra 2, 3 o más asignaturas destino (p. ej. una competencia de inglés cubre "Inglés I", "Inglés II" y "Inglés III"; una de desarrollo de software cubre "Programación I" y "Programación II"). Con cada competencia, revisa TODAS las asignaturas destino y emite UN vínculo por CADA una que sus resultados de aprendizaje cubran — no te detengas en la primera.
+- Las COMPETENCIAS (formación SENA, traen resultados de aprendizaje) son AMPLIAS: es normal y esperado y OBLIGATORIO si es sena que cubra 2, 3 o más asignaturas destino (p. ej. una competencia de inglés cubre "Inglés I", "Inglés II" y "Inglés III"; una de desarrollo de software cubre "Programación I" y "Programación II"). Con cada competencia, revisa TODAS las asignaturas destino y emite UN vínculo por CADA una que sus resultados de aprendizaje cubran — no te detengas en la primera.
 - Para CADA emparejamiento incluye "razon": una justificación BREVE (máximo 15 palabras, en español) de por qué son equivalentes (p. ej. "ambas cubren cálculo diferencial e integral").\n- La respuesta debe ser un JSON válido.
 
 Responde ÚNICAMENTE un objeto JSON con esta forma:
@@ -95,6 +96,13 @@ export async function emparejarUnidad(
   };
 
   const contenido =
+    (await llamarOpenRouter(
+      [
+        { role: "system", content: SISTEMA_UNIDAD },
+        { role: "user", content: JSON.stringify(payload) },
+      ],
+      { json: true, modelos: MODELOS_LIGEROS_OR },
+    )) ??
     (await llamarGroq(
       [
         { role: "system", content: SISTEMA_UNIDAD },
@@ -167,13 +175,22 @@ export async function emparejarMaterias(
   // Intentar con JSON mode (funciona con universitarios). Si falla (SENA: json_validate_failed),
   // reintentar sin JSON mode y extraer el JSON manualmente.
   let contenido =
-    (await llamarGroq(
+    (await llamarOpenRouter(
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: JSON.stringify(payload) },
+      ],
+      { json: true, modelos: MODELOS_LIGEROS_OR },
+    ));
+  if (contenido === null) {
+    contenido = (await llamarGroq(
       [
         { role: "system", content: SISTEMA },
         { role: "user", content: JSON.stringify(payload) },
       ],
       { json: true, modelos: MODELOS_LIGEROS },
     ));
+  }
   if (contenido === null) {
     contenido = await llamarGroq(
       [

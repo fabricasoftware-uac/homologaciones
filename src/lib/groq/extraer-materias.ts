@@ -1,6 +1,7 @@
 import { getDocumentProxy, renderPageAsImage } from "unpdf";
 
 import { llamarGroq, llamarGroqVision, ErrorIANoDisponible } from "./cliente";
+import { llamarOpenRouter, llamarOpenRouterVision } from "@/lib/openrouter/cliente";
 import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
 
 export type MateriaExtraida = {
@@ -105,6 +106,13 @@ export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtr
   const recorte = texto.slice(0, 12000);
 
   const contenido =
+    (await llamarOpenRouter(
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: recorte },
+      ],
+      { json: true },
+    )) ??
     (await llamarGroq(
       [
         { role: "system", content: SISTEMA },
@@ -156,6 +164,7 @@ export async function extraerMateriasPorVision(
     if (typeof url !== "string") continue;
 
     const contenido =
+      (await llamarOpenRouterVision(promptVision, [url], i - 1)) ??
       (await llamarGroqVision(promptVision, [url], i - 1)) ??
       (await llamarGeminiVision(promptVision, [url], i - 1));
 

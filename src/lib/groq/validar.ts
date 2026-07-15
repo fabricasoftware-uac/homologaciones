@@ -1,4 +1,5 @@
 import { llamarGroq, MODELOS_LIGEROS } from "./cliente";
+import { llamarOpenRouter, MODELOS_LIGEROS as MODELOS_LIGEROS_OR } from "@/lib/openrouter/cliente";
 import { llamarGemini, MODELOS_LIGEROS as MODELOS_LIGEROS_GEMINI } from "@/lib/gemini/cliente";
 
 // Validación de contenido del PDF con IA: ¿el archivo que subió la persona es de verdad un
@@ -33,6 +34,13 @@ export async function validarDocumentoAcademico(texto: string): Promise<Veredict
   // Va en la cadena LIGERA (20b primero) para NO gastar el cupo del 120b, que reservamos para la
   // extracción de materias. Así validar + extraer no compiten por el mismo límite de tokens/min.
   const contenido =
+    (await llamarOpenRouter(
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: recorte },
+      ],
+      { json: true, modelos: MODELOS_LIGEROS_OR },
+    )) ??
     (await llamarGroq(
       [
         { role: "system", content: SISTEMA },

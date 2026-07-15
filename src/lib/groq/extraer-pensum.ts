@@ -1,6 +1,7 @@
 import { getDocumentProxy, renderPageAsImage } from "unpdf";
 
 import { llamarGroq, llamarGroqVision } from "./cliente";
+import { llamarOpenRouter, llamarOpenRouterVision } from "@/lib/openrouter/cliente";
 import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
 import { extraerTextoEstructurado } from "@/lib/pdf/extraer-estructurado";
 
@@ -147,6 +148,7 @@ async function extraerDeTrozo(trozo: string): Promise<AsignaturaExtraida[] | nul
   // (16k) y se le DEJA el thinking encendido — sin razonar duplicaba bloques enteros del plan
   // (asignaturas repetidas corridas de semestre); con thinking y sin riesgo de truncado, lee bien.
   const contenido =
+    (await llamarOpenRouter(mensajes, { json: true, maxTokens: 16000 })) ??
     (await llamarGroq(mensajes, {
       json: true,
       maxTokens: MAX_TOKENS_SALIDA,
@@ -261,6 +263,7 @@ export async function extraerAsignaturasPorVision(bytes: Uint8Array): Promise<As
 
     // Round-robin de modelos por página: reparte el gasto de tokens entre los cupos de cada modelo.
     const contenido =
+      (await llamarOpenRouterVision(SISTEMA_VISION, [url], i - 1)) ??
       (await llamarGroqVision(SISTEMA_VISION, [url], i - 1)) ??
       (await llamarGeminiVision(SISTEMA_VISION, [url], i - 1));
     if (contenido === null) continue; // esta página falló: seguimos con las demás (best-effort)
