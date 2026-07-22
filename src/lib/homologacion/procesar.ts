@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
 
-import { llamarOpenRouter, generarEmbeddings } from "@/lib/openrouter/cliente";
+import { llamarOpenRouter, generarEmbeddings, DIMENSION_EMBEDDING } from "@/lib/openrouter/cliente";
 import { mapaConcurrente } from "@/lib/concurrencia";
 import {
   extraerYNormalizar,
@@ -101,8 +101,9 @@ export async function procesarCaso(
     metodoExtraccion = resultado.metodo;
     tipoInstitucion = resultado.tipoInstitucion;
 
-    // FASE 5: embedding de cada unidad desde su texto_embedding. Best-effort: si Gemini no responde
-    // (o no hay key), queda null y el pipeline sigue igual (el motor cae al camino legacy).
+    // FASE 5: embedding de cada unidad desde su texto_embedding. Best-effort: si el proveedor de
+    // embeddings no responde (o no hay key), queda null y el pipeline sigue igual (el motor cae al
+    // camino legacy).
     embsUnidades = await generarEmbeddings(unidades.map((u) => u.textoEmbedding));
   }
   const esSena = tipoInstitucion === "sena";
@@ -178,8 +179,8 @@ export async function procesarCaso(
       return;
     }
 
-    // Estimamos el semestre: usamos Gemini (gemini-2.5-flash-lite) como primera opción, y si no
-    // responde, caemos en el algoritmo determinístico de créditos.
+    // Estimamos el semestre: primero se lo pedimos al LLM (cadena de OpenRouter) y, si no responde,
+    // caemos en el algoritmo determinístico de créditos.
     const idsHomologadas = new Set(filasVinculo.map((f) => f.asignatura_id));
     semestreSugerido =
       (await estimarSemestreConGemini(asignaturas, idsHomologadas, esSena)) ??
@@ -304,11 +305,14 @@ async function buscarExtraccionPrevia(
     }));
 
     // PostgREST devuelve el vector como string "[...]"; lo volvemos number[] para el motor.
+    // Se exige la dimensión VIGENTE: un caso viejo puede traer vectores del modelo de embeddings
+    // anterior, y compararlos contra las asignaturas de hoy haría reventar el <=> de pgvector.
+    // Descartarlos deja que se regeneren, que es más barato que arrastrar un vector incomparable.
     const embsUnidades: (number[] | null)[] = filas.map((r) => {
       if (!r.embedding) return null;
       try {
         const v = typeof r.embedding === "string" ? JSON.parse(r.embedding) : r.embedding;
-        return Array.isArray(v) && v.length > 0 ? (v as number[]) : null;
+        return Array.isArray(v) && v.length === DIMENSION_EMBEDDING ? (v as number[]) : null;
       } catch {
         return null;
       }

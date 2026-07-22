@@ -3,21 +3,21 @@
 // SOLO debe importarse desde código de servidor (Server Actions, Route Handlers): lee la
 // OPENROUTER_API_KEY del entorno y, si llegara al navegador, la expondría.
 //
-// OpenRouter es el ÚNICO proveedor principal del proyecto (reemplazó a Groq). Gemini queda como
-// último recurso y como generador de embeddings (OpenRouter no ofrece embeddings).
+// OpenRouter es el ÚNICO proveedor de IA del proyecto (reemplazó a Groq y a la integración directa
+// con Gemini; también genera los embeddings).
 //
-// ── PLAN GRATUITO: LO QUE HAY QUE SABER ──
-// Los modelos con sufijo ":free" no cuestan nada, pero comparten una cuota DIARIA por CUENTA
-// (~50 requests/día sin créditos comprados; ~1000/día si la cuenta compró créditos alguna vez).
-// Dos consecuencias de diseño:
-//   1. La cuota es de la CUENTA, no del modelo. Cuando se agota, saltar al siguiente modelo de la
-//      cadena es inútil: fallaría igual y quemaría segundos. Por eso detectamos ese 429 concreto y
-//      cortamos en seco (ver esLimiteDiario) para que el llamador caiga a Gemini de una vez.
-//   2. Cada llamada cuenta. El pipeline debe resolver lo máximo posible sin IA (parser
-//      determinístico del SENA, caché de decisiones, regla de nombre, vectores).
-//
-// Cuando haya créditos, basta con cambiar las constantes de MODELOS_* por sus versiones de pago
-// (los mismos IDs sin ":free", o modelos mejores): el resto del código no cambia.
+// ── MODELOS DE PAGO, A PROPÓSITO ──
+// Las cadenas MODELOS_* usan solo modelos de pago (sin sufijo ":free"). Se probaron los ":free"
+// primero, pero traen dos problemas que un presupuesto chico de créditos resuelve:
+//   1. Cuota DIARIA por CUENTA (no por modelo): al agotarse, TODA la cadena ":free" cae a la vez,
+//      sin importar cuántos modelos de respaldo haya.
+//   2. Disponibilidad del proveedor de fondo: los ":free" se sirven con menor prioridad, así que
+//      es más frecuente toparse con "temporarily rate-limited upstream".
+// Con modelos de pago baratos (fracciones de centavo por request, ver MODELOS más abajo) ambos
+// problemas desaparecen y unos pocos dólares de crédito alcanzan para muchísimas solicitudes.
+// El código de clasificación de 429 (clasificarRateLimit) se conserva igual: sigue siendo una red
+// de seguridad válida si algún modelo ":free" vuelve a la cadena, y los proveedores de pago también
+// pueden saturarse puntualmente.
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -77,35 +77,43 @@ function clasificarRateLimit(detalle: string): ClaseRateLimit {
 // ── Cadenas de modelos ──
 //
 // Elegidos probando el payload REAL de homologación SENA (competencias con resultados de
-// aprendizaje × asignaturas del pensum) contra el catálogo vigente de OpenRouter (jul-2026):
+// aprendizaje × asignaturas del pensum) contra el catálogo vigente de OpenRouter (jul-2026).
+// Los tres son de PAGO y de proveedores/infraestructura distintos entre sí (para que la caída de
+// uno no arrastre a los demás) y cuestan fracciones de centavo por request:
 //
-//   google/gemma-4-26b-a4b-it:free → GANADOR. JSON válido y estable, 262k de contexto, y lo más
-//     importante: sus similitudes vienen CALIBRADAS (95 para una equivalencia clara, 70 para una
-//     parcial) en vez de un valor plano. Además rechaza las equivalencias forzadas —no homologa
-//     Cálculo I/II desde una competencia de matemáticas básicas—, que es justo lo que el
-//     coordinador revisa. Es multimodal, así que también sirve para el camino de visión (OCR).
-//   openai/gpt-oss-20b:free → respaldo. JSON estable, pero devuelve 80% en TODO (similitud sin
-//     calibrar) y es demasiado generoso homologando. Sirve para no quedarnos sin respuesta.
+//   deepseek/deepseek-v4-flash → primario. El más barato de los tres (~$0.10/$0.20 por millón de
+//     tokens prompt/completion), 1M de contexto, JSON estable. Razona por defecto aunque no se le
+//     pida: por eso toda llamada que lo usa debe mandar esfuerzoRazonamiento "low" u "off", o el
+//     razonamiento se come el maxTokens y la respuesta sale truncada.
+//   google/gemma-4-26b-a4b-it → respaldo 1 (versión de PAGO del mismo modelo que ganó las pruebas
+//     como ":free"; ver histórico en git). Sus similitudes vienen CALIBRADAS (95 para una
+//     equivalencia clara, 70 para una parcial) en vez de un valor plano, y rechaza equivalencias
+//     forzadas —no homologa Cálculo I/II desde una competencia de matemáticas básicas—, que es
+//     justo lo que el coordinador revisa. Es multimodal, así que también sirve para visión (OCR).
+//   google/gemini-2.5-flash-lite → respaldo 2, infraestructura de Google directa (no un proveedor
+//     de terceros como los anteriores dos): la red de seguridad si AMBOS de arriba fallan a la vez.
 //
 // DESCARTADOS (probados, no usar): nvidia/nemotron-3-super-120b:free razona en voz alta hasta
 // agotar max_tokens y nunca emite el JSON (el mismo fallo que tenía qwen en Groq).
 const MODELOS: string[] = [
   "deepseek/deepseek-v4-flash",
-  "google/gemma-4-26b-a4b-it:free"
+  "google/gemma-4-26b-a4b-it",
+  "google/gemini-2.5-flash-lite",
 ];
 
 // Cadena LIGERA para tareas de comparación por índices (emparejamiento). Hoy es la misma que la
-// principal: en el plan gratuito la cuota es por cuenta, así que repartir entre modelos no aporta
-// nada (a diferencia de Groq, donde el límite era POR MODELO y separar las cadenas sí ayudaba).
-// Se mantiene como export aparte para que, al pasar a créditos, se pueda abaratar solo esta.
+// principal: con modelos de pago no hay cuota compartida que repartir entre cadenas (a diferencia
+// de Groq, donde el límite era POR MODELO y separar las cadenas sí ayudaba). Se mantiene como
+// export aparte por si conviene abaratarla o especializarla más adelante.
 export const MODELOS_LIGEROS: string[] = MODELOS;
 
-// Modelos multimodales para leer PDFs ESCANEADOS (sin capa de texto). gemma-4 encabeza por ser el
-// mismo que ya valida bien el JSON; gemma-4-31b es el hermano denso; nemotron-nano-12b-vl es de
-// otra familia, como última red por si un problema afecta a toda la familia gemma.
+// Modelos multimodales para leer PDFs ESCANEADOS (sin capa de texto). deepseek-v4-flash NO sirve
+// aquí: es texto-solo (probado: OpenRouter devuelve 404 "No endpoints found that support image
+// input" en cuanto se le manda una imagen). gemma-4 encabeza por ser el mismo que ya valida bien
+// el JSON de texto; gemini-2.5-flash-lite es el respaldo en infraestructura de Google directa.
 const MODELOS_VISION: string[] = [
-  "deepseek/deepseek-v4-flash",
-  "nvidia/nemotron-nano-12b-v2-vl:free",
+  "google/gemma-4-26b-a4b-it",
+  "google/gemini-2.5-flash-lite",
 ];
 
 // Las peticiones de visión son GRANDES (una imagen de página completa consume miles de tokens), así
@@ -366,12 +374,106 @@ export async function llamarOpenRouterVision(
 
 // ── Embeddings ──
 //
-// Genera embeddings con el modelo qwen/qwen3-embedding-8b (768 dimensiones). OpenRouter usa el mismo
-// formato que la API de OpenAI para embeddings. Se usa para la búsqueda semántica (Fase 6): convertir
-// competencias y asignaturas en vectores para encontrar las Top-N candidatas sin gastar IA.
+// Genera embeddings con openai/text-embedding-3-small, truncado a 1024 dimensiones con el parámetro
+// `dimensions` (Matryoshka). OpenRouter los expone en /api/v1/embeddings con el mismo formato que la
+// API de OpenAI. Se usan para la búsqueda semántica: convertir competencias y asignaturas en
+// vectores para quedarse con las Top-N candidatas sin gastar tokens de LLM.
+//
+// POR QUÉ ESTE MODELO (medido contra el servicio real, 6 llamadas por modelo, mismo payload):
+//   openai/text-embedding-3-small → 6/6 respuestas OK, SIEMPRE servidas por OpenAI.
+//   qwen/qwen3-embedding-8b (el anterior) → 3/6. Los fallos llegan como HTTP 200 con el cuerpo
+//     VACÍO, y encima rotaba de proveedor (Nebius/SiliconFlow) sin control.
+// Además 1024 < 2000, que es el tope de pgvector para índices HNSW/ivfflat: con los 4096 dims de
+// qwen no se podía indexar nunca. La separación semántica también es mejor: en pares de asignaturas
+// reales da 0.64-0.68 entre afines contra 0.14-0.31 entre ajenas (qwen daba 0.87-0.92 contra
+// 0.56-0.60 — números más altos, pero mucho más pegados).
+//
+// POR QUÉ NO HAY CADENA DE RESPALDO (al contrario que MODELOS y MODELOS_VISION):
+// Dos modelos de embedding producen vectores en espacios semánticos DISTINTOS; el coseno entre uno
+// y otro no significa nada. Un respaldo no fallaría de forma visible: devolvería Top-N plausibles
+// pero equivocadas, que es peor que no responder. Ante el fallo devolvemos null y el motor degrada
+// al camino legacy (comparar contra todo el pensum con el LLM): gasta más tokens, pero acierta.
+// Si algún día se cambia de modelo hay que VACIAR los embeddings guardados (ver migración 0034),
+// nunca mezclarlos.
 
-const MODELO_EMBEDDING = "qwen/qwen3-embedding-8b";
-export const DIMENSION_EMBEDDING = 4096;
+const MODELO_EMBEDDING = "openai/text-embedding-3-small";
+export const DIMENSION_EMBEDDING = 1024;
+
+// Sin timeout, un proveedor colgado bloquea el pipeline entero: midiendo esto, una llamada quedó
+// pendiente más de dos minutos sin devolver nada.
+const TIMEOUT_EMBEDDING_MS = 30000;
+const MAX_REINTENTOS_EMBEDDING = 2;
+
+type LoteEmbeddings =
+  | { ok: true; embeddings: (number[] | null)[] }
+  | { ok: false; reintentar: boolean; motivo: string };
+
+// Un intento con UN lote. Separa los fallos PASAJEROS (red, timeout, 5xx, y sobre todo el 200 con
+// cuerpo vacío) de los definitivos (credencial inválida), que no vale la pena reintentar.
+async function intentarLoteEmbeddings(apiKey: string, lote: string[]): Promise<LoteEmbeddings> {
+  let respuesta: Response;
+  try {
+    respuesta = await fetch("https://openrouter.ai/api/v1/embeddings", {
+      method: "POST",
+      headers: cabeceras(apiKey),
+      body: JSON.stringify({
+        model: MODELO_EMBEDDING,
+        input: lote,
+        dimensions: DIMENSION_EMBEDDING,
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_EMBEDDING_MS),
+    });
+  } catch (e) {
+    return { ok: false, reintentar: true, motivo: `red/timeout: ${String(e)}` };
+  }
+
+  if (!respuesta.ok) {
+    const detalle = await respuesta.text().catch(() => "");
+    const credencial = respuesta.status === 401 || respuesta.status === 403;
+    return {
+      ok: false,
+      reintentar: !credencial,
+      motivo: `HTTP ${respuesta.status} ${detalle.slice(0, 200)}`,
+    };
+  }
+
+  // OJO: este endpoint devuelve a veces 200 con el cuerpo VACÍO (solo relleno de espacios para
+  // mantener viva la conexión). Antes eso reventaba en respuesta.json(), caía en el catch genérico
+  // y se daba por perdido el lote de 100 entero. Es un fallo PASAJERO: hay que reintentarlo.
+  const crudo = (await respuesta.text().catch(() => "")).trim();
+  if (!crudo) return { ok: false, reintentar: true, motivo: "200 con el cuerpo vacío" };
+
+  let datos: { data?: { embedding: number[]; index: number }[]; error?: { message?: string } };
+  try {
+    datos = JSON.parse(crudo);
+  } catch {
+    return { ok: false, reintentar: true, motivo: `200 no parseable: ${crudo.slice(0, 120)}` };
+  }
+  if (datos.error) {
+    return { ok: false, reintentar: true, motivo: `error del proveedor: ${datos.error.message ?? ""}` };
+  }
+
+  const embs = datos.data ?? [];
+  if (embs.length !== lote.length) {
+    return { ok: false, reintentar: true, motivo: `lote desalineado (${embs.length}/${lote.length})` };
+  }
+
+  // El orden de `data` no está garantizado; cada elemento trae su `index` y por ahí lo alineamos.
+  const ordenados = [...embs].sort((a, b) => a.index - b.index);
+
+  // Validamos la dimensión: un vector de otro tamaño no se puede comparar contra los que ya están
+  // guardados (pgvector lanza al aplicar <=> entre dimensiones distintas) y ensuciaría la tabla.
+  return {
+    ok: true,
+    embeddings: ordenados.map((e) => {
+      if (e.embedding.length === DIMENSION_EMBEDDING) return e.embedding;
+      console.warn(
+        `[openrouter-embed] Vector de ${e.embedding.length} dims (se esperaban ${DIMENSION_EMBEDDING}); se descarta.`,
+      );
+      return null;
+    }),
+  };
+}
 
 export async function generarEmbeddings(textos: string[]): Promise<(number[] | null)[]> {
   if (textos.length === 0) return [];
@@ -387,34 +489,27 @@ export async function generarEmbeddings(textos: string[]): Promise<(number[] | n
 
   for (let i = 0; i < textos.length; i += LOTE) {
     const lote = textos.slice(i, i + LOTE);
-    try {
-      const respuesta = await fetch("https://openrouter.ai/api/v1/embeddings", {
-        method: "POST",
-        headers: cabeceras(apiKey),
-        body: JSON.stringify({ model: MODELO_EMBEDDING, input: lote }),
-      });
+    let embeddings: (number[] | null)[] | null = null;
 
-      if (!respuesta.ok) {
-        const detalle = await respuesta.text();
-        console.warn(`[openrouter-embed] Lote falló (HTTP ${respuesta.status}): ${detalle.slice(0, 200)}`);
-        for (let j = 0; j < lote.length; j++) resultado.push(null);
-        continue;
+    for (let intento = 0; intento <= MAX_REINTENTOS_EMBEDDING; intento++) {
+      const r = await intentarLoteEmbeddings(apiKey, lote);
+      if (r.ok) {
+        embeddings = r.embeddings;
+        break;
       }
-
-      const datos = (await respuesta.json()) as { data?: { embedding: number[]; index: number }[] };
-      const embs = datos.data ?? [];
-      if (embs.length === lote.length) {
-        for (const e of embs) {
-          resultado.push(e.embedding.length > 0 ? e.embedding : null);
-        }
-      } else {
-        console.warn(`[openrouter-embed] Batch desalineado (${embs.length}/${lote.length}); null.`);
-        for (let j = 0; j < lote.length; j++) resultado.push(null);
+      if (!r.reintentar || intento === MAX_REINTENTOS_EMBEDDING) {
+        console.warn(`[openrouter-embed] Lote perdido (${r.motivo}); quedan sin embedding.`);
+        break;
       }
-    } catch (e) {
-      console.warn(`[openrouter-embed] Error de red:`, e);
-      for (let j = 0; j < lote.length; j++) resultado.push(null);
+      const espera = 600 * (intento + 1);
+      console.warn(`[openrouter-embed] Lote falló (${r.motivo}); reintento en ${espera}ms...`);
+      await dormir(espera);
     }
+
+    // Sin embeddings el pipeline NO se rompe: el motor cae al camino legacy (comparar contra todo
+    // el pensum con el LLM). Cuesta más tokens, pero sigue dando un resultado correcto.
+    if (embeddings) resultado.push(...embeddings);
+    else for (let j = 0; j < lote.length; j++) resultado.push(null);
   }
 
   return resultado;

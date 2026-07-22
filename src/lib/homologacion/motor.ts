@@ -347,7 +347,12 @@ export async function decidirVinculos(args: {
   // siempre): el asesor la revisa como cualquier otra. NO se cachea — el siguiente caso del programa
   // debe volver a intentar el juicio del LLM, que sí razona sobre el contenido.
   if (fallidasLLM.length > 0) {
-    const UMBRAL_VECTORIAL = 75;
+    // OJO: este umbral va ATADO al MODELO_EMBEDDING vigente — cada modelo tiene su propia escala de
+    // coseno y el valor no se traslada. Con openai/text-embedding-3-small (el actual), en pares de
+    // asignaturas reales las afines caen en 64-68 y las ajenas en 14-31, así que 50 parte el hueco.
+    // El 75 anterior estaba calibrado para qwen3-embedding-8b (afines 87-92, ajenas 56-60); dejarlo
+    // tras el cambio de modelo habría dejado esta red MUERTA, sin disparar nunca.
+    const UMBRAL_VECTORIAL = 50;
     let conRed = 0;
     for (const { idx, candidatas } of fallidasLLM) {
       const decision: DecisionUnidad = candidatas

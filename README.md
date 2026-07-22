@@ -76,7 +76,7 @@ La IA sugiere; el comité decide. Ningún veredicto sale sin revisión humana.
 | Lenguaje | TypeScript |
 | UI | Tailwind CSS v4, componentes shadcn/ui (Radix), animaciones con Motion |
 | Backend / datos | Supabase — PostgreSQL, Auth, Storage privado, Realtime, RLS |
-| IA | OpenRouter (LLM y modelos de visión, modelos gratuitos) con cadena de respaldo a Gemini |
+| IA | OpenRouter (LLM y modelos de visión, modelos de pago económicos con cadena de respaldo) |
 | PDF | `unpdf` (extracción de texto), `@napi-rs/canvas` (render de páginas escaneadas), `@react-pdf/renderer` (acta) |
 | Otros | QR de verificación, correo transaccional, gráficas con Recharts |
 
@@ -144,7 +144,7 @@ pnpm dev              # http://localhost:3000
 
 | Variable | Descripción |
 |----------|-------------|
-| `OPENROUTER_API_KEY` | Clave de OpenRouter para el análisis con IA. Solo backend. Sin créditos comprados, los modelos `:free` comparten ~50 requests/día por cuenta. |
+| `OPENROUTER_API_KEY` | Clave de OpenRouter para el análisis con IA. Solo backend. La cuenta necesita créditos comprados: el pipeline usa modelos de pago económicos (fracciones de centavo por solicitud) para evitar los límites de disponibilidad de los modelos `:free`. |
 | `NEXT_PUBLIC_SUPABASE_URL` | URL del proyecto Supabase. |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Clave pública de Supabase. |
 | `SUPABASE_SECRET_KEY` | Clave de servicio (acceso total). **Nunca** debe llegar al navegador. |

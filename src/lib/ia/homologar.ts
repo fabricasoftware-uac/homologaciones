@@ -99,7 +99,12 @@ export async function emparejarUnidad(
   ];
 
   const contenido =
-    (await llamarOpenRouter(mensajes, { json: true, modelos: MODELOS_LIGEROS_OR, maxTokens: 2000 }));
+    (await llamarOpenRouter(mensajes, {
+      json: true,
+      modelos: MODELOS_LIGEROS_OR,
+      maxTokens: 2000,
+      esfuerzoRazonamiento: "low",
+    }));
   if (!contenido) return [];
 
   try {
@@ -172,7 +177,13 @@ export async function emparejarMaterias(
   const proveedores: { nombre: string; llamar: () => Promise<string | null> }[] = [
     {
       nombre: "openrouter",
-      llamar: () => llamarOpenRouter(mensajes, { json: true, modelos: MODELOS_LIGEROS_OR, maxTokens: 4000 }),
+      llamar: () =>
+        llamarOpenRouter(mensajes, {
+          json: true,
+          modelos: MODELOS_LIGEROS_OR,
+          maxTokens: 4000,
+          esfuerzoRazonamiento: "low",
+        }),
     },
   ];
 
