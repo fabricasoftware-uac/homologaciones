@@ -90,8 +90,8 @@ function clasificarRateLimit(detalle: string): ClaseRateLimit {
 // DESCARTADOS (probados, no usar): nvidia/nemotron-3-super-120b:free razona en voz alta hasta
 // agotar max_tokens y nunca emite el JSON (el mismo fallo que tenía qwen en Groq).
 const MODELOS: string[] = [
-  "google/gemma-4-26b-a4b-it:free",
-  "openai/gpt-oss-20b:free",
+  "deepseek/deepseek-v4-flash",
+  "google/gemma-4-26b-a4b-it:free"
 ];
 
 // Cadena LIGERA para tareas de comparación por índices (emparejamiento). Hoy es la misma que la
@@ -104,8 +104,7 @@ export const MODELOS_LIGEROS: string[] = MODELOS;
 // mismo que ya valida bien el JSON; gemma-4-31b es el hermano denso; nemotron-nano-12b-vl es de
 // otra familia, como última red por si un problema afecta a toda la familia gemma.
 const MODELOS_VISION: string[] = [
-  "google/gemma-4-26b-a4b-it:free",
-  "google/gemma-4-31b-it:free",
+  "qwen/qwen3-embedding-8b",
   "nvidia/nemotron-nano-12b-v2-vl:free",
 ];
 
