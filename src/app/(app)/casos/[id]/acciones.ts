@@ -8,7 +8,8 @@ import { notificarVeredicto } from "@/lib/homologacion/correo";
 import { extraerTextoPdf } from "@/lib/pdf/extraer";
 import { procesarCaso } from "@/lib/homologacion/procesar";
 import { actualizarDecisionAdmin } from "@/lib/homologacion/motor";
-import { ErrorIANoDisponible } from "@/lib/groq/cliente";
+import { registrarPatronesAdmin, registrarRechazoPatron } from "@/lib/homologacion/patrones";
+import { ErrorIANoDisponible } from "@/lib/openrouter/cliente";
 
 // Acciones de la revisión del admin. Corren con la sesión del admin: la RLS ("Solo admin gestiona
 // vínculos" / "Solo admin actualiza casos") es la que de verdad autoriza la escritura.
@@ -110,8 +111,10 @@ export async function vincular(formData: FormData) {
       estado: "aprobado",
     });
   }
-  // Cierre del loop: la decisión del asesor alimenta el caché y aplica a futuros casos del programa.
+  // Cierre del loop: la decisión del asesor alimenta el caché exacto Y el aprendizaje por patrones
+  // (que sí generaliza a otros estudiantes con la misma materia redactada distinto).
   await actualizarDecisionAdmin(materiaOrigenId);
+  await registrarPatronesAdmin(materiaOrigenId);
   revalidatePath(`/casos/${casoId}`);
 }
 
@@ -133,9 +136,10 @@ export async function confirmarSugerencias(formData: FormData): Promise<{ aproba
     .select("id, materia_origen_id");
 
   const filas = (data as { id: string; materia_origen_id: string }[] | null) ?? [];
-  // Cierre del loop: cada materia confirmada en lote también entrena el caché de decisiones.
+  // Cierre del loop: cada materia confirmada en lote también entrena el caché y los patrones.
   for (const materiaId of new Set(filas.map((f) => f.materia_origen_id))) {
     await actualizarDecisionAdmin(materiaId);
+    await registrarPatronesAdmin(materiaId);
   }
 
   revalidatePath(`/casos/${casoId}`);
@@ -149,15 +153,23 @@ export async function desvincular(formData: FormData) {
   if (!casoId || !vinculoId) return;
 
   const supabase = crearClienteServidor();
-  // Guardamos a qué materia pertenecía ANTES de borrar, para re-cachear su estado resultante.
+  // Guardamos a qué materia y asignatura pertenecía ANTES de borrar: después del delete la fila ya
+  // no existe y no habría forma de saber QUÉ par acaba de descartar el asesor.
   const { data: vRow } = await supabase
     .from("vinculo")
-    .select("materia_origen_id")
+    .select("materia_origen_id, asignatura_id")
     .eq("id", vinculoId)
     .maybeSingle();
+  const fila = vRow as { materia_origen_id: string; asignatura_id: string } | null;
+
+  // El rechazo se aprende ANTES de borrar (con la fila todavía en pie). Es la mitad negativa del
+  // aprendizaje: sin ella, un par que la IA propone siempre y el asesor descarta siempre nunca
+  // acumularía evidencia en contra.
+  if (fila) await registrarRechazoPatron(fila.materia_origen_id, fila.asignatura_id);
+
   await supabase.from("vinculo").delete().eq("id", vinculoId);
 
-  const materiaId = (vRow as { materia_origen_id: string } | null)?.materia_origen_id;
+  const materiaId = fila?.materia_origen_id;
   if (materiaId) await actualizarDecisionAdmin(materiaId);
 
   revalidatePath(`/casos/${casoId}`);
@@ -206,8 +218,124 @@ export async function finalizarCaso(formData: FormData) {
     console.error("[correo] No se pudo notificar al estudiante", casoId, error);
   }
 
+  // Caso aprobado -> campana dirigida a los verificadores, que gestionan la inscripción. Best-effort.
+  if (veredicto === "aprobado") {
+    try {
+      const servicio = crearClienteServicio();
+      const { data: verificadores } = await servicio
+        .from("perfil")
+        .select("id")
+        .eq("rol", "verificador");
+      const filas = ((verificadores as { id: string }[] | null) ?? []).map((v) => ({
+        tipo: "caso_aprobado",
+        titulo: "Homologación aprobada",
+        cuerpo: "Un caso quedó listo para gestionar la inscripción del estudiante.",
+        caso_id: casoId,
+        destinatario_id: v.id,
+      }));
+      if (filas.length > 0) await servicio.from("notificacion").insert(filas);
+    } catch (error) {
+      console.error("[notificacion] No se pudo avisar a los verificadores", casoId, error);
+    }
+  }
+
   revalidatePath(`/casos/${casoId}`);
   revalidatePath("/casos");
+}
+
+// ── Roles: asignación de casos y gestión de inscripción ──
+
+async function rolDeQuienLlama(): Promise<{ id: string; rol: string } | null> {
+  const sesion = crearClienteServidor();
+  const {
+    data: { user },
+  } = await sesion.auth.getUser();
+  if (!user) return null;
+  const { data } = await sesion.from("perfil").select("rol").eq("id", user.id).single();
+  const rol = (data as { rol: string } | null)?.rol;
+  return rol ? { id: user.id, rol } : null;
+}
+
+// Asigna (o des-asigna) el caso a un asesor. Solo el admin; usa el cliente de servicio y avisa al
+// asesor por su campana con una notificación dirigida.
+export async function asignarCaso(formData: FormData): Promise<{ error: string } | void> {
+  const quien = await rolDeQuienLlama();
+  if (quien?.rol !== "admin") return { error: "Solo el administrador asigna casos." };
+
+  const casoId = String(formData.get("casoId") ?? "");
+  const asesorId = String(formData.get("asesorId") ?? "");
+  if (!casoId) return { error: "Caso no válido." };
+
+  const servicio = crearClienteServicio();
+  const { error } = await servicio
+    .from("caso")
+    .update({ asesor_id: asesorId || null })
+    .eq("id", casoId);
+  if (error) return { error: "No se pudo asignar el caso." };
+
+  if (asesorId) {
+    // Best-effort: la asignación ya quedó; la campana es un aviso.
+    await servicio.from("notificacion").insert({
+      tipo: "caso_asignado",
+      titulo: "Caso asignado",
+      cuerpo: "El administrador te asignó un caso de homologación para revisar.",
+      caso_id: casoId,
+      destinatario_id: asesorId,
+    });
+  }
+
+  revalidatePath(`/casos/${casoId}`);
+  revalidatePath("/casos");
+}
+
+// Guarda la gestión de inscripción de un caso APROBADO: estado del contacto con el estudiante,
+// nota del verificador y qué materias aprobadas ya quedaron matriculadas. La escribe el verificador
+// (o el admin) vía cliente de servicio: la RLS del verificador es de solo lectura a propósito.
+export async function guardarMatricula(formData: FormData): Promise<{ error: string } | void> {
+  const quien = await rolDeQuienLlama();
+  if (!quien || (quien.rol !== "admin" && quien.rol !== "verificador")) {
+    return { error: "No autorizado." };
+  }
+
+  const casoId = String(formData.get("casoId") ?? "");
+  const estado = String(formData.get("inscripcionEstado") ?? "");
+  const nota = String(formData.get("notaVerificador") ?? "").trim();
+  const matriculados = String(formData.get("matriculados") ?? "")
+    .split(",")
+    .filter(Boolean);
+  if (!casoId) return { error: "Caso no válido." };
+  if (!["pendiente", "contactado", "inscrito"].includes(estado)) {
+    return { error: "Estado de inscripción no válido." };
+  }
+
+  const servicio = crearClienteServicio();
+  // Solo sobre casos aprobados: la gestión de inscripción no aplica a casos en revisión.
+  const { data: casoRow } = await servicio.from("caso").select("estado").eq("id", casoId).single();
+  if ((casoRow as { estado?: string } | null)?.estado !== "aprobado") {
+    return { error: "Este caso no está aprobado." };
+  }
+
+  const { error } = await servicio
+    .from("caso")
+    .update({ inscripcion_estado: estado, nota_verificador: nota || null })
+    .eq("id", casoId);
+  if (error) return { error: "No se pudo guardar la gestión." };
+
+  // Checklist de matrícula: marca los indicados y desmarca el resto de los aprobados del caso.
+  await servicio
+    .from("vinculo")
+    .update({ matriculado: false })
+    .eq("caso_id", casoId)
+    .eq("estado", "aprobado");
+  if (matriculados.length > 0) {
+    await servicio
+      .from("vinculo")
+      .update({ matriculado: true })
+      .eq("caso_id", casoId)
+      .in("id", matriculados);
+  }
+
+  revalidatePath(`/casos/${casoId}`);
 }
 
 // Reabre un caso ya cerrado para volver a editarlo en el estudio (vuelve a 'en_revision').
@@ -258,6 +386,15 @@ export async function reprocesarCaso(formData: FormData): Promise<{ error: strin
     return { error: "No pudimos leer el certificado para reprocesarlo." };
   }
 
+  // SNAPSHOT de la propuesta actual ANTES de borrar: si el pipeline falla a mitad, se restaura tal
+  // cual y el caso NO queda vacío (antes un reproceso fallido borraba materias y vínculos y el admin
+  // veía cero vinculaciones mientras el estudiante seguía viendo la propuesta vieja).
+  const { data: materiasPrevias } = await servicio
+    .from("materia_origen")
+    .select("*")
+    .eq("caso_id", casoId);
+  const { data: vinculosPrevios } = await servicio.from("vinculo").select("*").eq("caso_id", casoId);
+
   // Limpiamos la propuesta anterior: primero los vínculos (referencian materias) y luego las
   // materias. Dejamos el caso en 'procesando' mientras corre el pipeline.
   await servicio.from("vinculo").delete().eq("caso_id", casoId);
@@ -268,20 +405,36 @@ export async function reprocesarCaso(formData: FormData): Promise<{ error: strin
     .eq("id", casoId);
 
   try {
-    // Pasamos los bytes: si el certificado está escaneado, el pipeline lo lee por visión (OCR).
-    await procesarCaso(casoId, texto, bytes);
+    // Pasamos los bytes (si el certificado está escaneado, el pipeline lo lee por visión) e
+    // ignorarCache: reutilizar el caché de decisiones reproduciría la MISMA propuesta que el admin
+    // quiere regenerar.
+    await procesarCaso(casoId, texto, bytes, { ignorarCache: true });
   } catch (error) {
     console.error("[reprocesar] Falló el pipeline del caso", casoId, error);
-    // No lo dejamos colgado en 'procesando': lo devolvemos a revisión manual antes de responder.
+    // Restauramos el snapshot (los ids originales se conservan, así los vínculos siguen apuntando
+    // bien) y lo devolvemos a revisión manual antes de responder.
+    try {
+      // El pipeline pudo alcanzar a insertar materias antes de fallar: se limpia antes de restaurar.
+      await servicio.from("vinculo").delete().eq("caso_id", casoId);
+      await servicio.from("materia_origen").delete().eq("caso_id", casoId);
+      if (materiasPrevias && materiasPrevias.length > 0) {
+        await servicio.from("materia_origen").insert(materiasPrevias);
+      }
+      if (vinculosPrevios && vinculosPrevios.length > 0) {
+        await servicio.from("vinculo").insert(vinculosPrevios);
+      }
+    } catch (errorRestaurar) {
+      console.error("[reprocesar] No se pudo restaurar la propuesta anterior", casoId, errorRestaurar);
+    }
     await servicio.from("caso").update({ estado: "en_revision" }).eq("id", casoId);
     revalidatePath(`/casos/${casoId}`);
     if (error instanceof ErrorIANoDisponible) {
       return {
         error:
-          "El servicio de IA no está disponible ahora mismo (posible falta de cupo o tokens). El caso quedó en revisión; vuelve a intentar el reprocesamiento en unos minutos.",
+          "El servicio de IA no está disponible ahora mismo (posible falta de cupo o tokens). Se conservó la propuesta anterior; vuelve a intentar el reprocesamiento en unos minutos.",
       };
     }
-    return { error: "El reprocesamiento falló. Inténtalo de nuevo en un momento." };
+    return { error: "El reprocesamiento falló. Se conservó la propuesta anterior." };
   }
 
   revalidatePath(`/casos/${casoId}`);

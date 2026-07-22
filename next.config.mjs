@@ -9,7 +9,13 @@ const nextConfig = {
   // @napi-rs/canvas (binario nativo que usa unpdf para renderizar PDFs escaneados a imagen) y
   // @react-pdf/renderer (genera el acta de homologación en PDF; trae su propio motor de layout).
   experimental: {
-    serverComponentsExternalPackages: ['nodemailer', '@napi-rs/canvas', '@react-pdf/renderer'],
+    serverComponentsExternalPackages: [
+      'nodemailer',
+      '@napi-rs/canvas',
+      '@react-pdf/renderer',
+      '@xenova/transformers',
+      'onnxruntime-node',
+    ],
   },
   // La raíz "/" redirige a "/casos" desde src/app/page.tsx (un solo lugar para
   // evitar duplicar la regla y los redirects permanentes que cachea el navegador).

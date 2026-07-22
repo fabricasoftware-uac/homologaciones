@@ -36,9 +36,9 @@ export function GestorPlanPdf({
 
   useEffect(() => {
     if (estado && "error" in estado) {
-      sileo.error({ title: "No se pudo subir el PDF", description: estado.error });
+      sileo.error({ title: "No se pudo cargar el plan", description: estado.error });
     } else if (estado && "ok" in estado) {
-      sileo.success({ title: "Pensum subido", description: estado.detalle });
+      sileo.success({ title: "Pensum cargado", description: estado.detalle });
     }
   }, [estado]);
 
@@ -48,7 +48,7 @@ export function GestorPlanPdf({
       datos.set("pensumId", pensumId);
       datos.set("ruta", ruta ?? "");
       await eliminarPlanPdf(datos);
-      sileo.success({ title: "PDF eliminado" });
+      sileo.success({ title: "Plan eliminado", description: "Se quitaron el PDF y sus asignaturas." });
     });
   }
 
@@ -92,10 +92,11 @@ export function GestorPlanPdf({
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>¿Eliminar el PDF de esta carrera?</AlertDialogTitle>
+              <AlertDialogTitle>¿Eliminar el plan de esta carrera?</AlertDialogTitle>
               <AlertDialogDescription>
-                Se quitará el PDF del plan. Las asignaturas ya cargadas se conservan. Puedes volver a
-                subirlo cuando quieras.
+                Se quitarán el PDF y TODAS las asignaturas cargadas de este pensum (incluidas las
+                vinculaciones de casos que apuntaban a ellas). Puedes volver a subir un PDF o crear
+                asignaturas manualmente cuando quieras.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

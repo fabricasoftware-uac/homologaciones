@@ -37,6 +37,20 @@ export function EscuchaCaso({ casoId }: { casoId: string }) {
           { event: "UPDATE", schema: "public", table: "caso", filter: `id=eq.${casoId}` },
           () => router.refresh(),
         )
+        // También los vínculos del caso: el admin puede vincular/desvincular/confirmar sin tocar la
+        // fila de `caso`, y sin esto la vista del estudiante quedaba desactualizada (mostraba una
+        // propuesta que ya no existía). Los DELETE masivos del reproceso no siempre llegan filtrados
+        // por realtime, pero ese flujo termina actualizando `caso`, que sí refresca.
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "vinculo", filter: `caso_id=eq.${casoId}` },
+          () => router.refresh(),
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "vinculo", filter: `caso_id=eq.${casoId}` },
+          () => router.refresh(),
+        )
         .subscribe();
     })();
 

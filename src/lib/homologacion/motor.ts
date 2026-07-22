@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { emparejarMaterias } from "@/lib/groq/homologar";
+import { emparejarMaterias } from "@/lib/ia/homologar";
+import { buscarPatrones } from "./patrones";
+import { mapaConcurrente } from "@/lib/concurrencia";
 import type { UnidadAcademicaNormalizada } from "@/lib/extraccion";
 
 // ── FASE 7 · Motor de decisión en cascada ──
@@ -44,6 +46,16 @@ const TOP_N_CANDIDATOS = 10;
 const SIMILITUD_REGLA = 98;
 const LOTE_LLM = 4; // unidades por llamada al LLM (microlote)
 
+// Topes de paralelismo. No son "cuanto más, mejor":
+//   - LLM: 3 y no 4 por una razón medida. Con 5 microlotes (una constancia SENA típica) ambos
+//     valores dan DOS tandas —o sea, el mismo tiempo de pared— pero con 4 en vuelo el proveedor
+//     gratuito devolvía 429 "temporarily rate-limited upstream" y los lotes terminaban degradados al
+//     modelo de respaldo. Con 3 el tiempo es igual y las respuestas salen del modelo bueno.
+//   - Vectorial: son consultas a Postgres, baratas, pero el pool de Supabase es finito y este
+//     pipeline no es el único que lo usa.
+const CONCURRENCIA_LLM = 3;
+const CONCURRENCIA_VECTORIAL = 6;
+
 // Versión COMPACTA de la descripción para el payload del LLM: el nombre completo + hasta 6 RAs
 // recortados. Los RAs completos (a veces 900+ chars por competencia) viven en la BD; para JUZGAR
 // equivalencias, una muestra basta y ahorra ~50-70% de los tokens de entrada.
@@ -80,38 +92,75 @@ export async function decidirVinculos(args: {
   embsUnidades: (number[] | null)[];
   asignaturas: AsignaturaDestino[];
   esSena: boolean;
+  // Reproceso explícito del admin: salta el Nivel 0 (leer el caché reproduciría la MISMA propuesta
+  // que se quiere regenerar) y permite pisar decisiones admin NEGATIVAS ([]) al guardar las nuevas.
+  ignorarCache?: boolean;
 }): Promise<VinculoDecidido[]> {
-  const { supabase, pensumId, unidades, embsUnidades, asignaturas, esSena } = args;
+  const { supabase, pensumId, unidades, embsUnidades, asignaturas, esSena, ignorarCache = false } = args;
   if (unidades.length === 0 || asignaturas.length === 0) return [];
 
   const hashes = unidades.map((u) => hashUnidad(u.textoEmbedding));
   const porId = new Map(asignaturas.map((a) => [a.id, a] as const));
   const decisiones = new Map<number, DecisionUnidad>();
-  const stats = { cache: 0, regla: 0, llm: 0, legacy: 0 };
+  const stats = { cache: 0, patron: 0, regla: 0, llm: 0, legacy: 0 };
 
   // ── Nivel 0 · Caché (una sola consulta batch) ──
-  try {
-    const { data } = await supabase
-      .from("decision_matching")
-      .select("hash_unidad, vinculos")
-      .eq("pensum_id", pensumId)
-      .in("hash_unidad", hashes);
-    const cacheado = new Map(
-      ((data as { hash_unidad: string; vinculos: DecisionUnidad }[] | null) ?? []).map((r) => [
-        r.hash_unidad,
-        r.vinculos,
-      ]),
-    );
-    hashes.forEach((h, i) => {
-      const hit = cacheado.get(h);
-      if (hit) {
-        // Si el pensum cambió desde que se cacheó, alguna asignatura puede ya no existir: se filtra.
-        decisiones.set(i, hit.filter((v) => porId.has(v.asignatura_id)));
-        stats.cache++;
-      }
-    });
-  } catch (e) {
-    console.warn("[motor] Caché de decisiones no disponible; sigo sin él:", e);
+  if (ignorarCache) {
+    console.log("[motor] Reproceso: se ignora el caché de decisiones (Nivel 0).");
+  } else {
+    try {
+      const { data } = await supabase
+        .from("decision_matching")
+        .select("hash_unidad, vinculos")
+        .eq("pensum_id", pensumId)
+        .in("hash_unidad", hashes);
+      const cacheado = new Map(
+        ((data as { hash_unidad: string; vinculos: DecisionUnidad }[] | null) ?? []).map((r) => [
+          r.hash_unidad,
+          r.vinculos,
+        ]),
+      );
+      hashes.forEach((h, i) => {
+        const hit = cacheado.get(h);
+        if (hit) {
+          // Si el pensum cambió desde que se cacheó, alguna asignatura puede ya no existir: se filtra.
+          decisiones.set(i, hit.filter((v) => porId.has(v.asignatura_id)));
+          stats.cache++;
+        }
+      });
+    } catch (e) {
+      console.warn("[motor] Caché de decisiones no disponible; sigo sin él:", e);
+    }
+  }
+
+  // ── Nivel 0.5 · PATRONES APRENDIDOS ──
+  //
+  // Lo que el caché exacto (Nivel 0) no puede cubrir: dos estudiantes del mismo programa traen la
+  // misma competencia con los RAs redactados distinto → hashes distintos → el Nivel 0 falla. Este
+  // nivel busca por NOMBRE normalizado y aplica los pares que los asesores ya confirmaron varias
+  // veces. Es el "aprende de lo que hace el admin" de verdad: cuesta 0 tokens y mejora solo con el
+  // uso. Va ANTES de la regla de nombre porque una decisión humana repetida vale más que una
+  // coincidencia textual.
+  const nombresNorm = unidades.map((u) => normalizarNombre(u.nombre));
+  if (!ignorarCache) {
+    const patrones = await buscarPatrones(supabase, pensumId, nombresNorm);
+    for (let i = 0; i < unidades.length; i++) {
+      if (decisiones.has(i)) continue;
+      const aprendidos = patrones.get(nombresNorm[i]);
+      if (!aprendidos || aprendidos.length === 0) continue;
+      // Puede que el pensum haya cambiado desde que se aprendió: se filtran las que ya no existen.
+      const vigentes = aprendidos.filter((p) => porId.has(p.asignaturaId));
+      if (vigentes.length === 0) continue;
+      decisiones.set(
+        i,
+        vigentes.map((p) => ({
+          asignatura_id: p.asignaturaId,
+          similitud: p.similitud,
+          razon: p.razon,
+        })),
+      );
+      stats.patron++;
+    }
   }
 
   // ── Nivel 1 · Regla de igualdad de nombre ──
@@ -122,44 +171,64 @@ export async function decidirVinculos(args: {
   }
   for (let i = 0; i < unidades.length; i++) {
     if (decisiones.has(i)) continue;
-    const match = porNombre.get(normalizarNombre(unidades[i].nombre));
-    if (!match) continue;
-    const decision: DecisionUnidad = [
-      { asignatura_id: match.id, similitud: SIMILITUD_REGLA, razon: "Nombre equivalente en el plan destino" },
-    ];
-    decisiones.set(i, decision);
-    stats.regla++;
-    void guardarDecision(supabase, hashes[i], pensumId, decision, "regla");
+    // SENA: saltar regla de nombre. Una competencia SENA que casualmente coincida
+    // con una asignatura no debe quedarse con 1 solo vínculo — debe llegar al LLM
+    // para que evalúe si cubre VARIAS asignaturas.
+    if (!esSena) {
+      const match = porNombre.get(normalizarNombre(unidades[i].nombre));
+      if (match) {
+        const decision: DecisionUnidad = [
+          { asignatura_id: match.id, similitud: SIMILITUD_REGLA, razon: "Nombre equivalente en el plan destino" },
+        ];
+        decisiones.set(i, decision);
+        stats.regla++;
+        void guardarDecision(supabase, hashes[i], pensumId, decision, "regla", ignorarCache);
+        continue;
+      }
+    }
   }
 
-  // ── Nivel 2 · Vectores: candidatas Top-N por unidad pendiente ──
-  const pendientes: { idx: number; candidatas: AsignaturaDestino[] }[] = [];
-  const sinEmbedding: number[] = [];
-  for (let i = 0; i < unidades.length; i++) {
-    if (decisiones.has(i)) continue;
+  // ── Nivel 2 · Vectores: candidatas Top-N por unidad pendiente (con su similitud coseno, que
+  // además sirve de RED si el LLM no está disponible) ──
+  // Las consultas son INDEPENDIENTES entre sí (cada una resuelve una unidad), así que van en
+  // paralelo con tope: en serie eran tantos viajes a Postgres como unidades —19 en una constancia
+  // SENA típica— sumando sus latencias una tras otra sin ninguna necesidad.
+  type Candidata = { asignatura: AsignaturaDestino; similitud: number };
+  const porResolver = unidades
+    .map((_, i) => i)
+    .filter((i) => !decisiones.has(i));
+
+  const busquedas = await mapaConcurrente(porResolver, CONCURRENCIA_VECTORIAL, async (i) => {
     const emb = embsUnidades[i];
-    if (!emb) {
-      sinEmbedding.push(i);
-      continue;
-    }
+    if (!emb) return { idx: i, candidatas: null };
     try {
       const { data } = await supabase.rpc("buscar_asignaturas_similares", {
         p_pensum_id: pensumId,
         p_embedding: JSON.stringify(emb),
-        p_top_n: TOP_N_CANDIDATOS,
+        p_top_n: unidades[i].tipo === "competencia" ? 30 : TOP_N_CANDIDATOS,
       });
-      const candidatas = (((data as { id: string }[] | null) ?? [])
-        .map((r) => porId.get(r.id))
-        .filter(Boolean) ?? []) as AsignaturaDestino[];
-      if (candidatas.length === 0) {
-        sinEmbedding.push(i); // el pensum no tiene embeddings todavía: va por el camino legacy
-        continue;
-      }
-      pendientes.push({ idx: i, candidatas });
+      const candidatas = ((data as { id: string; similitud: number }[] | null) ?? [])
+        .map((r) => {
+          const asignatura = porId.get(r.id);
+          return asignatura
+            ? { asignatura, similitud: Math.round(Number(r.similitud) * 100) }
+            : null;
+        })
+        .filter((c): c is Candidata => c !== null);
+      return { idx: i, candidatas: candidatas.length > 0 ? candidatas : null };
     } catch (e) {
       console.warn(`[motor] Falló la búsqueda vectorial para la unidad ${i}; va por legacy:`, e);
-      sinEmbedding.push(i);
+      return { idx: i, candidatas: null };
     }
+  });
+
+  // Se reparten conservando el orden de entrada (mapaConcurrente devuelve alineado), para que la
+  // propuesta sea determinista aunque las consultas terminen desordenadas.
+  const pendientes: { idx: number; candidatas: Candidata[] }[] = [];
+  const sinEmbedding: number[] = [];
+  for (const { idx, candidatas } of busquedas) {
+    if (candidatas) pendientes.push({ idx, candidatas });
+    else sinEmbedding.push(idx); // sin embedding o sin candidatas: va por el camino legacy
   }
 
   // ── Nivel 3 · LLM en MICROLOTES ──
@@ -169,16 +238,30 @@ export async function decidirVinculos(args: {
   // estable. Trade-off consciente: el dedup interno del lote puede quitarle una candidata a una
   // unidad si otra del mismo lote la reclama con más similitud (impureza menor del caché); la
   // restricción global del caso se aplica al final de todos modos.
-  for (let p = 0; p < pendientes.length; p += LOTE_LLM) {
-    const lote = pendientes.slice(p, p + LOTE_LLM);
+  // Lotes donde la IA NO estuvo disponible: sus unidades caen a la red de similitud vectorial al
+  // final. OJO: no van al camino legacy (una llamada aún más grande contra el mismo proveedor caído)
+  // ni se cachean como decisión negativa — eso convertía un rate-limit pasajero en un "no homologa
+  // nada" permanente y el caso quedaba sin ninguna relación.
+  const fallidasLLM: { idx: number; candidatas: Candidata[] }[] = [];
 
+  // Los microlotes son INDEPENDIENTES: cada uno juzga sus propias unidades contra sus propias
+  // candidatas y no mira el resultado de los demás (los conflictos se resuelven al final, en la
+  // resolución global del caso). Correrlos en serie era la causa dominante de la espera: con 13 s
+  // por llamada medidos en el tier gratuito, una constancia SENA de 19 competencias son 5 lotes =
+  // ~66 s. En paralelo con tope bajan a ~15 s.
+  const grupos: { idx: number; candidatas: Candidata[] }[][] = [];
+  for (let p = 0; p < pendientes.length; p += LOTE_LLM) {
+    grupos.push(pendientes.slice(p, p + LOTE_LLM));
+  }
+
+  const resultadosLotes = await mapaConcurrente(grupos, CONCURRENCIA_LLM, async (lote) => {
     const union: AsignaturaDestino[] = [];
     const vistos = new Set<string>();
     for (const { candidatas } of lote) {
-      for (const a of candidatas) {
-        if (vistos.has(a.id)) continue;
-        vistos.add(a.id);
-        union.push(a);
+      for (const { asignatura } of candidatas) {
+        if (vistos.has(asignatura.id)) continue;
+        vistos.add(asignatura.id);
+        union.push(asignatura);
       }
     }
 
@@ -190,26 +273,38 @@ export async function decidirVinculos(args: {
           nota: unidades[idx].nota,
         })),
         union.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
-        true, // múltiples por origen dentro del lote: la restricción real (SENA o no) va en el greedy global
+        true, // múltiples por origen
+        esSena, // señal SENA explícita al prompt del LLM
       );
-
-      const porUnidad = new Map<number, DecisionUnidad>();
-      for (const v of vinculos) {
-        const idxGlobal = lote[v.materia]?.idx;
-        if (idxGlobal === undefined || !union[v.asignatura]) continue;
-        const lista = porUnidad.get(idxGlobal) ?? [];
-        lista.push({ asignatura_id: union[v.asignatura].id, similitud: v.similitud, razon: v.razon });
-        porUnidad.set(idxGlobal, lista);
-      }
-      for (const { idx } of lote) {
-        const decision = porUnidad.get(idx) ?? [];
-        decisiones.set(idx, decision);
-        stats.llm++;
-        void guardarDecision(supabase, hashes[idx], pensumId, decision, "ia");
-      }
+      return { lote, union, vinculos };
     } catch (e) {
-      console.warn("[motor] Falló un microlote LLM; esas unidades van por legacy:", e);
-      for (const { idx } of lote) sinEmbedding.push(idx);
+      console.warn("[motor] Falló un microlote LLM; esas unidades van a la red vectorial:", e);
+      return { lote, union, vinculos: null };
+    }
+  });
+
+  // La ESCRITURA de las decisiones se hace después, en el orden original de los lotes: así el
+  // resultado no depende de cuál llamada terminó primero.
+  for (const { lote, union, vinculos } of resultadosLotes) {
+    if (vinculos === null) {
+      // La IA no respondió: NO es un "no homologa"; estas unidades van a la red vectorial.
+      fallidasLLM.push(...lote);
+      continue;
+    }
+
+    const porUnidad = new Map<number, DecisionUnidad>();
+    for (const v of vinculos) {
+      const idxGlobal = lote[v.materia]?.idx;
+      if (idxGlobal === undefined || !union[v.asignatura]) continue;
+      const lista = porUnidad.get(idxGlobal) ?? [];
+      lista.push({ asignatura_id: union[v.asignatura].id, similitud: v.similitud, razon: v.razon });
+      porUnidad.set(idxGlobal, lista);
+    }
+    for (const { idx } of lote) {
+      const decision = porUnidad.get(idx) ?? [];
+      decisiones.set(idx, decision);
+      stats.llm++;
+      void guardarDecision(supabase, hashes[idx], pensumId, decision, "ia", ignorarCache);
     }
   }
 
@@ -226,23 +321,60 @@ export async function decidirVinculos(args: {
       asignaturas.map((a) => ({ nombre: a.nombre, creditos: a.creditos, semestre: a.semestre })),
       esSena,
     );
-    const porUnidad = new Map<number, DecisionUnidad>();
-    for (const v of vinculos) {
-      const idxGlobal = sinEmbedding[v.materia];
-      if (idxGlobal === undefined || !asignaturas[v.asignatura]) continue;
-      const lista = porUnidad.get(idxGlobal) ?? [];
-      lista.push({ asignatura_id: asignaturas[v.asignatura].id, similitud: v.similitud, razon: v.razon });
-      porUnidad.set(idxGlobal, lista);
-    }
-    for (const i of sinEmbedding) {
-      const decision = porUnidad.get(i) ?? [];
-      decisiones.set(i, decision);
-      void guardarDecision(supabase, hashes[i], pensumId, decision, "ia");
+    if (vinculos === null) {
+      // Sin IA y sin embeddings no hay nada que proponer para estas unidades; quedan sin decisión
+      // (y SIN cachear) para que el próximo procesamiento vuelva a intentarlo.
+      console.warn(`[motor] IA no disponible para ${sinEmbedding.length} unidades legacy; quedan sin propuesta.`);
+    } else {
+      const porUnidad = new Map<number, DecisionUnidad>();
+      for (const v of vinculos) {
+        const idxGlobal = sinEmbedding[v.materia];
+        if (idxGlobal === undefined || !asignaturas[v.asignatura]) continue;
+        const lista = porUnidad.get(idxGlobal) ?? [];
+        lista.push({ asignatura_id: asignaturas[v.asignatura].id, similitud: v.similitud, razon: v.razon });
+        porUnidad.set(idxGlobal, lista);
+      }
+      for (const i of sinEmbedding) {
+        const decision = porUnidad.get(i) ?? [];
+        decisiones.set(i, decision);
+        void guardarDecision(supabase, hashes[i], pensumId, decision, "ia", ignorarCache);
+      }
     }
   }
 
+  // ── Red vectorial: si el LLM no estuvo disponible, la similitud coseno propone directo ──
+  // Es una sugerencia degradada pero útil (los embeddings ya ubicaron las candidatas correctas casi
+  // siempre): el asesor la revisa como cualquier otra. NO se cachea — el siguiente caso del programa
+  // debe volver a intentar el juicio del LLM, que sí razona sobre el contenido.
+  if (fallidasLLM.length > 0) {
+    // OJO: este umbral va ATADO al MODELO_EMBEDDING vigente — cada modelo tiene su propia escala de
+    // coseno y el valor no se traslada. Con openai/text-embedding-3-small (el actual), en pares de
+    // asignaturas reales las afines caen en 64-68 y las ajenas en 14-31, así que 50 parte el hueco.
+    // El 75 anterior estaba calibrado para qwen3-embedding-8b (afines 87-92, ajenas 56-60); dejarlo
+    // tras el cambio de modelo habría dejado esta red MUERTA, sin disparar nunca.
+    const UMBRAL_VECTORIAL = 50;
+    let conRed = 0;
+    for (const { idx, candidatas } of fallidasLLM) {
+      const decision: DecisionUnidad = candidatas
+        .filter((c) => c.similitud >= UMBRAL_VECTORIAL)
+        .slice(0, 3)
+        .map((c) => ({
+          asignatura_id: c.asignatura.id,
+          similitud: c.similitud,
+          razon: "Sugerencia por similitud semántica (la IA de emparejamiento no respondió)",
+        }));
+      if (decision.length > 0) {
+        decisiones.set(idx, decision);
+        conRed++;
+      }
+    }
+    console.warn(
+      `[motor] IA de emparejamiento caída para ${fallidasLLM.length} unidades: ${conRed} rescatadas por similitud vectorial (sin cachear).`,
+    );
+  }
+
   console.log(
-    `[motor] Decisiones: ${stats.cache} caché · ${stats.regla} regla · ${stats.llm} LLM en microlotes de ${LOTE_LLM} · ${stats.legacy} legacy (de ${unidades.length} unidades).`,
+    `[motor] Decisiones: ${stats.cache} caché · ${stats.patron} patrón aprendido · ${stats.regla} regla · ${stats.llm} LLM en microlotes de ${LOTE_LLM} · ${stats.legacy} legacy · ${fallidasLLM.length} sin IA (de ${unidades.length} unidades).`,
   );
 
   // ── Resolución global del caso: cada asignatura destino se homologa a lo sumo UNA vez; cada
@@ -276,17 +408,24 @@ async function guardarDecision(
   pensumId: string,
   vinculos: DecisionUnidad,
   fuente: "ia" | "regla",
+  pisarAdminNegativa = false,
 ): Promise<void> {
   try {
     // Una decisión HUMANA nunca se pisa con una automática: si el asesor ya decidió esta unidad
-    // contra este pensum, la IA no la toca.
+    // contra este pensum, la IA no la toca. Excepción (solo en reproceso explícito): una decisión
+    // admin NEGATIVA ([]) sí puede pisarse — "no homologa nada" no debe bloquear la regeneración
+    // para siempre; las decisiones admin CON vínculos siguen siendo intocables.
     const { data: existente } = await supabase
       .from("decision_matching")
-      .select("fuente")
+      .select("fuente, vinculos")
       .eq("hash_unidad", hash)
       .eq("pensum_id", pensumId)
       .maybeSingle();
-    if ((existente as { fuente?: string } | null)?.fuente === "admin") return;
+    const fila = existente as { fuente?: string; vinculos?: DecisionUnidad } | null;
+    if (fila?.fuente === "admin") {
+      const esNegativa = !fila.vinculos || fila.vinculos.length === 0;
+      if (!(pisarAdminNegativa && esNegativa)) return;
+    }
 
     await supabase
       .from("decision_matching")

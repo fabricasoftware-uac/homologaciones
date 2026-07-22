@@ -173,11 +173,11 @@ export function Landing({
         </div>
       </header>
 
-      {/* Hero animado (spotlight + orbes + contadores) */}
+      {/* Hero: la equivalencia como tesis (ver landing-hero.tsx). */}
       <LandingHero marca={marca} tieneSesion={tieneSesion} carreras={carreras} />
 
       {/* "Product shot": la ilustración animada del estudio, el ancla visual de la página. */}
-      <section className="relative max-w-3xl mx-auto px-4 sm:px-6 pb-16 sm:pb-20">
+      <section className="relative max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
         <IlustracionEstudio />
         <Revelar delay={0.15}>
           <p className="mt-5 text-center text-sm text-slate-400 dark:text-slate-500">
@@ -190,8 +190,14 @@ export function Landing({
       <section id="como-funciona" className="scroll-mt-20 bg-slate-50 dark:bg-slate-900/50 border-y border-slate-100 dark:border-slate-800">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
           <Revelar>
-            <h2 className="text-center text-2xl sm:text-3xl font-bold tracking-tight">Cómo funciona</h2>
-            <p className="text-center text-slate-500 dark:text-slate-400 mt-2">
+            {/* Encabezados alineados a la izquierda con su rótulo: el centrado de todo es la marca de
+                la plantilla, y además cuesta más de leer. El rótulo dice en qué parte del recorrido
+                está el lector, que es información real. */}
+            <p className="etiqueta-registro">El recorrido</p>
+            <h2 className="mt-3 text-3xl sm:text-4xl font-extrabold tracking-[-0.02em]">
+              Cómo funciona
+            </h2>
+            <p className="text-slate-500 dark:text-slate-400 mt-3 max-w-md">
               Tres pasos, sin filas ni trámites largos.
             </p>
           </Revelar>
@@ -202,7 +208,8 @@ export function Landing({
                 delay={i * 0.1}
                 className="relative bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 transition-shadow hover:shadow-md"
               >
-                <span className="absolute top-5 right-5 text-3xl font-extrabold text-slate-100 dark:text-slate-800 select-none">
+                {/* El número del paso, con la voz display: es orden real, no adorno. */}
+                <span className="absolute top-5 right-6 text-4xl font-bold text-slate-200 dark:text-slate-800 select-none leading-none">
                   {i + 1}
                 </span>
                 <div className="w-12 h-12 rounded-xl bg-marca/10 text-marca flex items-center justify-center">
@@ -227,10 +234,11 @@ export function Landing({
       {/* Qué hay detrás: la profundidad del sistema, en filas alternadas texto <-> ficha visual. */}
       <section id="detalle" className="scroll-mt-20 max-w-5xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
         <Revelar>
-          <h2 className="text-center text-2xl sm:text-3xl font-bold tracking-tight">
+          <p className="etiqueta-registro">Por dentro</p>
+          <h2 className="mt-3 text-3xl sm:text-4xl font-extrabold tracking-[-0.02em]">
             Qué hay detrás de tu estimación
           </h2>
-          <p className="text-center text-slate-500 dark:text-slate-400 mt-2 max-w-xl mx-auto">
+          <p className="text-slate-500 dark:text-slate-400 mt-3 max-w-xl">
             No es magia: es un sistema que lee, compara y explica cada decisión — y una persona que la confirma.
           </p>
         </Revelar>
@@ -256,9 +264,11 @@ export function Landing({
                 </div>
                 {/* Ficha visual: chips grandes con los conceptos del bloque. */}
                 <div className={i % 2 === 1 ? "md:order-1" : undefined}>
+                  {/* Sin el halo difuminado que envolvía esta ficha: era decoración pura, de las que
+                      hacen que dos productos distintos se vean iguales. La ficha se sostiene con su
+                      borde y su jerarquía. */}
                   <div className="relative">
-                    <div className="pointer-events-none absolute -inset-4 rounded-3xl bg-gradient-to-br from-marca/10 via-transparent to-acento/10 blur-xl" />
-                    <div className="relative bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 space-y-3">
+                    <div className="relative bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-3">
                       {bloque.ficha.map((f, j) => (
                         <div
                           key={f.texto}
@@ -300,7 +310,10 @@ export function Landing({
       {/* FAQ */}
       <section id="faq" className="scroll-mt-20 max-w-2xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
         <Revelar>
-          <h2 className="text-center text-2xl sm:text-3xl font-bold tracking-tight">Preguntas frecuentes</h2>
+          <p className="etiqueta-registro">Dudas</p>
+          <h2 className="mt-3 text-3xl sm:text-4xl font-extrabold tracking-[-0.02em]">
+            Preguntas frecuentes
+          </h2>
           <div className="mt-8 space-y-3">
             {FAQ.map((item) => (
               <details
@@ -323,10 +336,8 @@ export function Landing({
         className="relative overflow-hidden text-white"
         style={{ background: "linear-gradient(135deg, var(--marca), var(--acento))" }}
       >
-        <div className="pointer-events-none absolute -top-20 -left-16 w-72 h-72 rounded-full bg-white/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 -right-16 w-80 h-80 rounded-full bg-black/10 blur-3xl" />
         <Revelar className="relative max-w-3xl mx-auto px-4 sm:px-6 py-16 text-center">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
+          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-[-0.02em]">
             ¿Listo para conocer tu homologación?
           </h2>
           <p className="mt-3 text-white/80 max-w-md mx-auto">

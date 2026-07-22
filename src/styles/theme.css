@@ -1,5 +1,45 @@
 @custom-variant dark (&:is(.dark *));
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   PALETA INSTITUCIONAL (reemplaza a `slate` en toda la app)
+
+   NO es una paleta inventada: sale del portal oficial de la Autónoma del Cauca
+   (portal.uniautonoma.edu.co). Su tema declara --azul: #243B8E, y sus hex más repetidos son el cian
+   #1c9dd8, los navy #273978 / #0e113d y los neutros claros #f4f5f9 / #e9ebf1 / #dcdfe9.
+
+   La escala de abajo es esa familia azul llevada a 11 tonos: mismo matiz que el azul institucional
+   (220°-231°, contra 227° de su #243B8E y 228° de su #f4f5f9), con la saturación bajando a medida
+   que aclara, para que los grises de la interfaz se lean como "de la casa" y no como un gris
+   cualquiera de librería.
+
+   Dos intentos previos y por qué fallaron:
+   1. El `slate` de Tailwind: azul frío MUY saturado en los tonos oscuros, que sobre superficies
+      grandes daba sensación de chapa metálica.
+   2. Un neutro cálido (sepia, tono 30°): mataba lo metálico pero peleaba de frente con la identidad
+      de la universidad, que es azul fría. La app parecía de otra institución.
+   Esta escala resuelve las dos: es azul institucional, no acero genérico.
+
+   Se aplica redefiniendo las variables de color de Tailwind, sin tocar los componentes: hay 721 usos
+   de `slate` en 55 archivos, y migrarlos a mano garantizaba olvidar alguno (un solo
+   `dark:bg-slate-900` sin migrar deja un parche del color viejo en mitad de una pantalla).
+
+   Contraste verificado contra los pares reales de la interfaz: todos los textos cumplen WCAG AA
+   (el más justo es el atenuado en claro, 5.15:1).
+   ───────────────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-slate-50: #f5f7fa;
+  --color-slate-100: #ebeef4;
+  --color-slate-200: #dce0ea;
+  --color-slate-300: #bcc3d6;
+  --color-slate-400: #8a93ae;
+  --color-slate-500: #5f6884;
+  --color-slate-600: #454d68;
+  --color-slate-700: #313850;
+  --color-slate-800: #20263b;
+  --color-slate-900: #151a2c;
+  --color-slate-950: #0d1020;
+}
+
 :root {
   --font-size: 16px;
   --background: #ffffff;
@@ -41,44 +81,49 @@
   --sidebar-ring: oklch(0.708 0 0);
 
   /* Marca (white-label): valores por defecto. El layout raíz los sobreescribe en runtime con los
-     colores que la institución guarde en Configuración. */
-  --marca: #1e40af;
-  --marca-hover: #1e3a8a;
+     colores que la institución guarde en Configuración.
+     Los defaults son los COLORES REALES del portal de la Autónoma del Cauca: --azul #243B8E de su
+     hoja de estilos, con #1c9dd8 (su hex más frecuente) como acento y #273978 para el hover. */
+  --marca: #243b8e;
+  --marca-hover: #1b2d6e;
   --marca-fg: #ffffff;
-  --acento: #0ea5e9;
+  --acento: #1c9dd8;
   --eliminar: #dc2626;
   --eliminar-hover: #b91c1c;
   --eliminar-fg: #ffffff;
 
-  /* Tipografía del producto: Satoshi (cargada en fonts.css). Sobreescribe el stack por defecto, así
-     todas las utilidades font-sans la usan. */
-  --font-sans: "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Tipografía del producto: Nunito Sans (cargada en fonts.css), el equivalente libre más cercano a
+     la Museo Sans Rounded que usa el portal de la universidad. Una sola familia para todo: los
+     títulos se distinguen por peso y tamaño, no cambiando de fuente. */
+  --font-sans: "Nunito Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 .dark {
-  /* Paleta SLATE para el modo oscuro (coherente con las variantes dark:slate-* de los componentes).
-     background = slate-950, card/popover = slate-900, border/muted = slate-800, texto = slate-100/400. */
-  --background: #020617;
-  --foreground: #f1f5f9;
-  --card: #0f172a;
-  --card-foreground: #f1f5f9;
-  --popover: #0f172a;
-  --popover-foreground: #f1f5f9;
-  --primary: #f1f5f9;
-  --primary-foreground: #0f172a;
-  --secondary: #1e293b;
-  --secondary-foreground: #f1f5f9;
-  --muted: #1e293b;
-  --muted-foreground: #94a3b8;
-  --accent: #1e293b;
-  --accent-foreground: #f1f5f9;
+  /* Modo oscuro sobre la escala institucional de arriba (misma correspondencia de siempre:
+     background = slate-950, card/popover = slate-900, border/muted = slate-800, texto = 100/400).
+     El fondo #0d1020 es el navy profundo de la universidad (su #0e113d llevado a superficie), no un
+     gris azulado de librería: por eso lee como "de la casa" en vez de como chapa. */
+  --background: #0d1020;
+  --foreground: #ebeef4;
+  --card: #151a2c;
+  --card-foreground: #ebeef4;
+  --popover: #151a2c;
+  --popover-foreground: #ebeef4;
+  --primary: #ebeef4;
+  --primary-foreground: #151a2c;
+  --secondary: #20263b;
+  --secondary-foreground: #ebeef4;
+  --muted: #20263b;
+  --muted-foreground: #8a93ae;
+  --accent: #20263b;
+  --accent-foreground: #ebeef4;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --border: #1e293b;
-  --input: #1e293b;
-  --input-background: #0f172a;
-  --switch-background: #334155;
-  --ring: #475569;
+  --border: #20263b;
+  --input: #20263b;
+  --input-background: #151a2c;
+  --switch-background: #313850;
+  --ring: #454d68;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
   --chart-1: oklch(0.488 0.243 264.376);
@@ -86,14 +131,14 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: #0f172a;
-  --sidebar-foreground: #f1f5f9;
-  --sidebar-primary: #f1f5f9;
-  --sidebar-primary-foreground: #0f172a;
-  --sidebar-accent: #1e293b;
-  --sidebar-accent-foreground: #f1f5f9;
-  --sidebar-border: #1e293b;
-  --sidebar-ring: #475569;
+  --sidebar: #151a2c;
+  --sidebar-foreground: #ebeef4;
+  --sidebar-primary: #ebeef4;
+  --sidebar-primary-foreground: #151a2c;
+  --sidebar-accent: #20263b;
+  --sidebar-accent-foreground: #ebeef4;
+  --sidebar-border: #20263b;
+  --sidebar-ring: #454d68;
 }
 
 @theme inline {
@@ -145,6 +190,10 @@
   --color-eliminar: var(--eliminar);
   --color-eliminar-hover: var(--eliminar-hover);
   --color-eliminar-fg: var(--eliminar-fg);
+
+  /* Acento institucional cálido del portal (#fcc201 → #f08600): se reserva para señales de
+     ATENCIÓN (pendientes, avisos), no para decorar. */
+  --color-dorado: #f8af00;
 }
 
 @layer base {
@@ -222,6 +271,48 @@
 }
 ::view-transition-old(root) {
   z-index: 1;
+}
+
+/* ── Piezas del sistema visual ──
+   Elementos que se repiten en landing, login y paneles. Viven aquí (y no copiados en cada archivo)
+   para que la identidad se cambie en un solo sitio. */
+@layer components {
+  /* Rótulo de sección: mayúsculas pequeñas. El espaciado se mantiene DISCRETO (0.08em): con el
+     tracking muy abierto que tenía antes, el rótulo pedía más atención que el título al que
+     acompaña, y ese amaneramiento es de los que hacen que una interfaz parezca de plantilla.
+     Se usa solo cuando el texto aporta información real, nunca como adorno. */
+  .etiqueta-registro {
+    @apply text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400;
+  }
+
+  /* Regla fina de sección: separa bloques sin el peso de un borde completo. */
+  .regla-seccion {
+    @apply h-px bg-gradient-to-r from-slate-200 via-slate-200 to-transparent dark:from-slate-800 dark:via-slate-800;
+  }
+}
+
+@layer base {
+  /* Foco visible y consistente en todo lo interactivo. Antes dependía del outline por defecto del
+     navegador, que sobre superficies oscuras casi no se veía: navegar con teclado era adivinar. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--marca);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Respeto por "reducir movimiento" del sistema operativo. La landing tiene entradas al scroll y
+     transiciones; para quien pide menos movimiento (mareo, vestibular), se apagan de raíz en vez de
+     ir componente por componente. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 /* Deriva lenta de las orbes del hero de la landing (landing-hero.tsx). */

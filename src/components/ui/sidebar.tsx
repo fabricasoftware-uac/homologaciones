@@ -606,10 +606,15 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<"div"> & {
   showIcon?: boolean;
 }) {
-  // Random width between 50 to 90%.
+  // Ancho variable pero DETERMINÍSTICO (derivado de un id estable de React): Math.random() aquí
+  // producía "Prop `style` did not match" al hidratar, porque servidor y cliente sorteaban anchos
+  // distintos.
+  const id = React.useId();
   const width = React.useMemo(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`;
-  }, []);
+    let h = 0;
+    for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 41;
+    return `${h + 50}%`;
+  }, [id]);
 
   return (
     <div

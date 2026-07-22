@@ -28,7 +28,7 @@ Estudiante sube PDF → IA extrae materias → IA empareja con pensum destino
                     ┌──────┴───────┐
                     │   Motor IA    │
                     │  ┌─────────┐  │
-                    │  │  Groq    │  │ (primario)
+                    │  │OpenRouter│  │ (primario)
                     │  │  Gemini  │  │ (fallback)
                     │  └─────────┘  │
                     └──────────────┘
@@ -52,8 +52,8 @@ Estudiante sube PDF → IA extrae materias → IA empareja con pensum destino
 6. El PDF se sube a Supabase Storage (bucket privado `certificados`)
 7. Se crea el registro `caso` con estado `procesando`
 8. Se ejecuta el pipeline de IA (`procesarCaso`):
-   - Extrae materias del certificado (IA: Groq o parser regex para SENA)
-   - Empareja cada materia con las asignaturas del pensum destino (IA: Groq o Gemini)
+   - Extrae materias del certificado (IA: OpenRouter, o parser determinístico para SENA)
+   - Empareja cada materia con las asignaturas del pensum destino (IA: OpenRouter o Gemini)
    - Estima el semestre sugerido (IA: Gemini o algoritmo determinístico)
    - Guarda vínculos en estado `pendiente`
    - Cambia el caso a `en_revision`
@@ -79,10 +79,10 @@ Estudiante sube PDF → IA extrae materias → IA empareja con pensum destino
 | **Autenticación** | Supabase Auth | Anónimo (estudiantes) + email/password (admins) |
 | **Autorización** | Row Level Security (RLS) | Políticas por bucket y tabla en Supabase |
 | **Almacenamiento** | Supabase Storage | Buckets: `certificados` (privado), `planes` (público), `marca` (público) |
-| **IA primaria** | Groq | API compatible con OpenAI. Modelos: `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.6-27b` |
+| **IA primaria** | OpenRouter | API compatible con OpenAI. Modelos gratuitos: `google/gemma-4-26b-a4b-it:free` (texto y visión), `openai/gpt-oss-20b:free` (respaldo) |
 | **IA fallback** | Google Gemini | SDK `@google/genai` v2. Modelos: `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.0-flash` |
 | **Extracción PDF texto** | unpdf | Fork de pdf.js optimizado para Node/serverless |
-| **OCR / Visión** | unpdf + @napi-rs/canvas | Renderizado de páginas a imagen → modelos de visión Groq/Gemini |
+| **OCR / Visión** | unpdf + @napi-rs/canvas | Renderizado de páginas a imagen → modelos de visión OpenRouter/Gemini |
 | **Generación PDF** | @react-pdf/renderer | Actas de homologación |
 | **QR** | qrcode | Verificación de actas |
 | **Correo (dev)** | nodemailer | Vía Mailpit (SMTP local) |
@@ -198,8 +198,8 @@ Notas predefinidas reutilizables por el admin al finalizar casos.
 2. **Carga del pensum destino**: obtiene todas las `asignatura` del pensum, ordenadas por semestre
 3. **Extracción de materias origen** (tres caminos):
    - **SENA**: `parsearSENA(textoPdf)` — parser regex determinístico, 0 tokens
-   - **Universitario con texto** (>= 30 chars): `extraerMateriasDeTexto(textoPdf)` — IA (Groq → Gemini)
-   - **Escaneado** (< 30 chars): `extraerMateriasPorVision(bytesPdf)` — OCR por visión (Groq → Gemini)
+   - **Universitario con texto** (>= 30 chars): `extraerMateriasDeTexto(textoPdf)` — IA (OpenRouter → Gemini)
+   - **Escaneado** (< 30 chars): `extraerMateriasPorVision(bytesPdf)` — OCR por visión (OpenRouter → Gemini)
 4. **Guardado**: inserta materias extraídas en `materia_origen`
 5. **Emparejamiento IA**: `emparejarMaterias(origen, destino, esSena)` — compara por nombre y contenido, devuelve vínculos con similitud 0-100 y justificación. Si es SENA, permite 1:N (una competencia → varias asignaturas)
 6. **Guardado de vínculos**: inserta en `vinculo` con estado `pendiente`
@@ -230,12 +230,12 @@ Notas predefinidas reutilizables por el admin al finalizar casos.
 
 ### 6.1 Certificados universitarios
 
-**Librería**: `unpdf` (extracción de texto), Groq/Gemini (IA)
+**Librería**: `unpdf` (extracción de texto), OpenRouter/Gemini (IA)
 
 **Flujo**:
 1. `unpdf.extractText()` extrae el texto completo del PDF con `mergePages: true`
 2. Si el texto tiene < 30 caracteres, se considera **escaneado** y se va por visión
-3. `extraerMateriasDeTexto(texto)` envía los primeros 12000 caracteres a Groq (primario) o Gemini (fallback)
+3. `extraerMateriasDeTexto(texto)` envía los primeros 12000 caracteres a OpenRouter (primario) o Gemini (fallback)
 4. El prompt (`SISTEMA`) pide extraer materias organizadas por semestre con: `nombre`, `codigo`, `creditos`, `nota`, `semestre_origen`
 5. La respuesta se parsea como JSON (`{"materias": [...]}`) y se sanitiza (créditos y semestre deben ser enteros)
 
@@ -277,12 +277,12 @@ RESULTADOS DE APRENDIZAJE
 
 ## 7. Motor de IA
 
-El sistema utiliza **dos proveedores de IA en cascada**: Groq como primario y Google Gemini como fallback. Cada proveedor tiene su propia cadena de modelos con reintentos ante rate-limit.
+El sistema utiliza **dos proveedores de IA en cascada**: OpenRouter como primario y Google Gemini como fallback. Cada proveedor tiene su propia cadena de modelos con reintentos ante rate-limit.
 
 ### 7.1 Proveedores
 
-#### Groq (`src/lib/groq/cliente.ts`)
-- **API**: `https://api.groq.com/openai/v1/chat/completions` (compatible con OpenAI)
+#### OpenRouter (`src/lib/openrouter/cliente.ts`)
+- **API**: `https://openrouter.ai/api/v1/chat/completions` (compatible con OpenAI)
 - **Modelos texto**: `openai/gpt-oss-120b` → `openai/gpt-oss-20b` → `qwen/qwen3.6-27b`
 - **Modelos ligeros**: `openai/gpt-oss-20b` → `qwen/qwen3.6-27b` → `openai/gpt-oss-120b`
 - **Modelos visión**: `qwen/qwen3.6-27b` → `meta-llama/llama-4-scout-17b-16e-instruct`
@@ -292,16 +292,16 @@ El sistema utiliza **dos proveedores de IA en cascada**: Groq como primario y Go
 - **SDK**: `@google/genai` v2 (`GoogleGenAI`)
 - **Modelos texto**: `gemini-2.5-flash-lite` → `gemini-2.5-flash` → `gemini-2.0-flash`
 - **Modelos visión**: `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash`
-- **Resiliencia**: mismo patrón de cadena de modelos + reintentos que Groq. Detecta errores `RESOURCE_EXHAUSTED` (créditos agotados).
+- **Resiliencia**: mismo patrón de cadena de modelos + reintentos que OpenRouter. Detecta errores `RESOURCE_EXHAUSTED` (créditos agotados).
 
 ### 7.2 Puntos de uso de IA
 
 #### A. Validación de documento académico
 | Campo | Valor |
 |---|---|
-| **Archivo** | `src/lib/groq/validar.ts` |
+| **Archivo** | `src/lib/ia/validar.ts` |
 | **Función** | `validarDocumentoAcademico(texto)` |
-| **Modelo** | Cadena ligera (Groq → Gemini) |
+| **Modelo** | Cadena ligera (OpenRouter → Gemini) |
 | **Prompt** | Clasifica si el texto del PDF es un certificado académico legítimo vs. spam/publicidad/contenido adulto |
 | **Entrada** | Primeros 3000 caracteres del PDF |
 | **Salida** | `{ valido: boolean, motivo: string }` |
@@ -311,9 +311,9 @@ El sistema utiliza **dos proveedores de IA en cascada**: Groq como primario y Go
 #### B. Extracción de materias (texto)
 | Campo | Valor |
 |---|---|
-| **Archivo** | `src/lib/groq/extraer-materias.ts` |
+| **Archivo** | `src/lib/ia/extraer-materias.ts` |
 | **Función** | `extraerMateriasDeTexto(texto)` |
-| **Modelo** | Cadena completa (Groq → Gemini) |
+| **Modelo** | Cadena completa (OpenRouter → Gemini) |
 | **Prompt** | `SISTEMA`: extrae materias organizadas por semestre con nombre, código, créditos, nota, semestre |
 | **Entrada** | Primeros 12000 caracteres del PDF |
 | **Salida** | `{ materias: [{ nombre, codigo, creditos, nota, semestre_origen }] }` |
@@ -323,9 +323,9 @@ El sistema utiliza **dos proveedores de IA en cascada**: Groq como primario y Go
 #### C. Extracción de materias (visión/OCR)
 | Campo | Valor |
 |---|---|
-| **Archivo** | `src/lib/groq/extraer-materias.ts` |
+| **Archivo** | `src/lib/ia/extraer-materias.ts` |
 | **Función** | `extraerMateriasPorVision(bytes, esSena?)` |
-| **Modelo** | Visión (Groq → Gemini), round-robin por página |
+| **Modelo** | Visión (OpenRouter → Gemini), round-robin por página |
 | **Prompt** | `SISTEMA_VISION` o `SISTEMA_VISION_SENA`: igual que texto pero desde imágenes |
 | **Entrada** | Imágenes de páginas del PDF (data URLs, escala 1.5, máx 8 páginas) |
 | **Salida** | Igual que extracción por texto |
@@ -335,9 +335,9 @@ El sistema utiliza **dos proveedores de IA en cascada**: Groq como primario y Go
 #### D. Extracción de pensum (texto y visión)
 | Campo | Valor |
 |---|---|
-| **Archivo** | `src/lib/groq/extraer-pensum.ts` |
+| **Archivo** | `src/lib/ia/extraer-pensum.ts` |
 | **Funciones** | `extraerAsignaturasDePensum(texto)`, `extraerAsignaturasPorVision(bytes)` |
-| **Modelo** | Cadena completa (texto) / Visión (Groq → Gemini) |
+| **Modelo** | Cadena completa (texto) / Visión (OpenRouter → Gemini) |
 | **Prompt** | Extrae asignaturas del plan de estudios organizadas por semestre |
 | **Entrada** | Texto del PDF del pensum o imágenes de sus páginas |
 | **Salida** | `{ asignaturas: [{ nombre, codigo, creditos, semestre }] }` |
@@ -346,9 +346,9 @@ El sistema utiliza **dos proveedores de IA en cascada**: Groq como primario y Go
 #### E. Emparejamiento de materias
 | Campo | Valor |
 |---|---|
-| **Archivo** | `src/lib/groq/homologar.ts` |
+| **Archivo** | `src/lib/ia/homologar.ts` |
 | **Función** | `emparejarMaterias(origen, destino, permitirMultiplesPorOrigen)` |
-| **Modelo** | Cadena ligera (Groq → Gemini) |
+| **Modelo** | Cadena ligera (OpenRouter → Gemini) |
 | **Prompt** | `SISTEMA`: experto en homologación colombiana, empareja por nombre, temática y contenido. Una materia de origen puede equivaler a varias de destino (si `permitirMultiplesPorOrigen`). Incluye justificación breve |
 | **Entrada** | JSON con `materias_origen` (índices numéricos) y `asignaturas_destino` (índices numéricos) |
 | **Salida** | `{ vinculos: [{ materia, asignatura, similitud, razon }] }` |
@@ -401,7 +401,7 @@ No hay búsqueda vectorial, ni índices de texto completo (tsvector). Todo el ma
 ## 10. Problemas conocidos
 
 ### 10.1 Dependencia excesiva de IA
-- La extracción de materias de certificados universitarios depende completamente de Groq/Gemini. Si ambos proveedores fallan simultáneamente, el pipeline no puede extraer materias y el caso queda en `procesando` o `en_revision` sin datos.
+- La extracción de materias de certificados universitarios depende completamente de OpenRouter/Gemini. Si ambos proveedores fallan simultáneamente, el pipeline no puede extraer materias y el caso queda en `procesando` o `en_revision` sin datos.
 - El emparejamiento de materias también depende 100% de IA. Sin IA, no hay sugerencias de homologación.
 - La estimación del semestre usa Gemini como primario (el algoritmo determinístico es solo fallback).
 
@@ -412,7 +412,7 @@ No hay búsqueda vectorial, ni índices de texto completo (tsvector). Todo el ma
 - Gemini frecuentemente reporta `RESOURCE_EXHAUSTED` por créditos agotados en el tier gratuito.
 
 ### 10.3 Historial de problemas con extracción SENA
-- Inicialmente se intentó extraer con IA (JSON mode), pero **todos** los modelos de Groq fallaron con `json_validate_failed` porque el formato tabular del SENA es muy distinto al universitario.
+- Inicialmente se intentó extraer con IA (JSON mode), pero **todos** los modelos fallaron con `json_validate_failed` porque el formato tabular del SENA es muy distinto al universitario.
 - Se intentó sin JSON mode, pero las respuestas quedaban truncadas por exceder los tokens de salida (~19 competencias con RAs largos).
 - Se intentó extracción página por página (9 llamadas IA), pero era lento y costoso en tokens/créditos.
 - **Solución actual**: parser regex determinístico. Funciona bien pero es frágil: cualquier cambio en el formato del SENA rompería el parser.
@@ -425,16 +425,16 @@ No hay búsqueda vectorial, ni índices de texto completo (tsvector). Todo el ma
 ### 10.5 Escalabilidad
 - El límite diario es 10 homologaciones por IP/usuario. Sin ese límite, los costos de IA se dispararían.
 - Cada homologación consume 3-5 llamadas a IA (validación, extracción, emparejamiento, estimación). Con 100 estudiantes/día serían 300-500 llamadas.
-- Los rate-limits de Groq (tokens por minuto por modelo) y los créditos de Gemini limitan el throughput.
+- La cuota DIARIA de los modelos gratuitos de OpenRouter (~50 requests/día por cuenta sin créditos) y los créditos de Gemini limitan el throughput.
 - No hay caché de resultados de IA. Si dos estudiantes suben certificados similares, se procesan independientemente.
 
 ### 10.6 Costos
-- Groq tiene tier gratuito con límites de tokens/minuto por modelo. Si se excede, las llamadas fallan y se va a fallback.
+- OpenRouter tiene modelos gratuitos con un límite DIARIO por cuenta (no por modelo): al agotarse, la cadena se corta de inmediato y se va a Gemini.
 - Gemini tiene créditos prepago. Cuando se agotan, todas las llamadas a Gemini fallan con `RESOURCE_EXHAUSTED`.
 - No hay medición ni control de costos por caso.
 
 ### 10.7 Duplicidad de lógica
-- Hay dos clientes de IA (Groq y Gemini) con patrones casi idénticos (cadena de modelos, reintentos 429, visión) pero implementados por separado.
+- Hay dos clientes de IA (OpenRouter y Gemini) con patrones casi idénticos (cadena de modelos, reintentos 429, visión) pero implementados por separado.
 - Las funciones de extracción (`extraer-materias.ts` y `extraer-pensum.ts`) comparten patrones (texto + visión, parseo JSON, deduplicación) pero están duplicadas.
 - El parseo y saneado de JSON está repetido en múltiples lugares.
 
@@ -451,11 +451,11 @@ No hay búsqueda vectorial, ni índices de texto completo (tsvector). Todo el ma
 
 ## 11. Código relevante
 
-### 11.1 `src/lib/groq/` — Motor de IA (Groq)
+### 11.1 `src/lib/ia/` — Motor de IA (OpenRouter)
 
 | Archivo | Propósito |
 |---|---|
-| `cliente.ts` | Cliente de bajo nivel para Groq. Funciones `llamarGroq()` (texto) y `llamarGroqVision()` (visión). Cadena de modelos con fallback, reintentos ante 429, `ErrorIANoDisponible`. |
+| `../openrouter/cliente.ts` | Cliente de bajo nivel para OpenRouter. Funciones `llamarOpenRouter()` (texto) y `llamarOpenRouterVision()` (visión). Cadena de modelos con fallback, reintentos ante 429, corte inmediato ante cuota diaria agotada, `ErrorIANoDisponible`. |
 | `validar.ts` | `validarDocumentoAcademico()`: clasifica si el PDF es un documento académico legítimo. |
 | `extraer-materias.ts` | `extraerMateriasDeTexto()`, `extraerMateriasPorVision()`: extrae materias del certificado del estudiante. `parsearSENA()`: parser regex para certificados SENA. |
 | `extraer-pensum.ts` | `extraerAsignaturasDePensum()`, `extraerAsignaturasPorVision()`: extrae asignaturas del plan de estudios. |
@@ -465,7 +465,7 @@ No hay búsqueda vectorial, ni índices de texto completo (tsvector). Todo el ma
 
 | Archivo | Propósito |
 |---|---|
-| `cliente.ts` | Cliente de bajo nivel para Google Gemini. Funciones `llamarGemini()` (texto) y `llamarGeminiVision()` (visión). Mismo patrón de resiliencia que Groq. |
+| `cliente.ts` | Cliente de bajo nivel para Google Gemini. Funciones `llamarGemini()` (texto) y `llamarGeminiVision()` (visión). Mismo patrón de resiliencia que OpenRouter. |
 
 ### 11.3 `src/lib/homologacion/` — Pipeline de homologación
 
@@ -572,7 +572,7 @@ Catálogo de ~66 instituciones de educación superior colombianas para el autoco
 - [x] Subida de documentos adicionales (syllabi)
 - [x] Notas internas (solo admin) y públicas (visibles al estudiante)
 - [x] Plantillas de notas reutilizables
-- [x] Doble proveedor IA con fallback (Groq → Gemini)
+- [x] Doble proveedor IA con fallback (OpenRouter → Gemini)
 - [x] Resiliencia ante rate-limits y fallos de modelos
 
 ### 12.2 Funcionalidades parcialmente implementadas
@@ -605,6 +605,7 @@ una CASCADA de costo creciente en `src/lib/homologacion/motor.ts` (`decidirVincu
 | Nivel | Mecanismo | Costo |
 |---|---|---|
 | 0 | **Caché de decisiones** (`decision_matching`): la decisión "¿qué cubre esta unidad en este pensum?" se reutiliza entre estudiantes (clave: hash de la unidad × pensum). Incluye decisiones negativas. | 0 tokens |
+| 0.5 | **Patrones aprendidos** (`patron_homologacion`): pares (nombre normalizado → asignatura) que los asesores han confirmado 3+ veces. Generaliza donde el Nivel 0 falla. Ver 13.2. | 0 tokens |
 | 1 | **Regla de nombre**: igualdad de nombre normalizado (tildes, mayúsculas, romanos finales) → vínculo 98%. | 0 tokens |
 | 2 | **Vectores**: Top-10 candidatas por coseno pgvector (`buscar_asignaturas_similares`). | 0 tokens |
 | 3 | **LLM por unidad** (`emparejarUnidad`): juzga UNA unidad contra sus pocas candidatas, con los RAs como evidencia. Su resultado se cachea. | la única llamada con costo |
@@ -637,3 +638,36 @@ el estado APROBADO actual de esa unidad contra el pensum del caso, con `fuente: 
 - También se cachea el "no homologa nada" del asesor (decisión negativa).
 - La corrección se hace UNA vez y aplica para siempre: el costo y el error del sistema DECRECEN con
   el uso.
+
+**Límite de este mecanismo**: `decision_matching` acierta solo con texto IDÉNTICO (su clave es el
+sha256 del `texto_embedding`: nombre + descripción + TODOS los resultados de aprendizaje). Basta un
+RA redactado distinto para que el hash cambie y la decisión del asesor no se reutilice. En la
+práctica cubre el mismo documento, no el mismo conocimiento. Eso lo resuelve 13.2.
+
+### 13.2 Aprendizaje por patrones (Nivel 0.5)
+
+Tabla `patron_homologacion` (migración `0032`) + `src/lib/homologacion/patrones.ts`. Aprende un
+nivel por encima del caché exacto: la clave es el **nombre normalizado** de la unidad de origen ×
+pensum × asignatura destino, con dos contadores.
+
+| Acción del asesor | Efecto |
+|---|---|
+| `vincular` / `confirmarSugerencias` | `registrarPatronesAdmin` → +1 confirmación al par |
+| `desvincular` | `registrarRechazoPatron` (ANTES del delete, si no la fila ya no existe) → +1 rechazo |
+
+El motor aplica un patrón solo si acumula **≥ 3 confirmaciones** y estas **superan a los rechazos**.
+La similitud propuesta es el promedio corrido de las aprobaciones, y la razón que ve el asesor dice
+cuántas veces se confirmó.
+
+- **Por qué contadores y no un booleano**: el asesor se corrige. Un par confirmado 2 veces y
+  rechazado 5 no debe aplicarse nunca.
+- **Por qué se aprende también del rechazo**: sin la mitad negativa, un par que la IA propone
+  siempre y el asesor descarta siempre jamás acumularía evidencia en contra.
+- **Atomicidad**: el contador se suma en una función SQL (`registrar_patron_homologacion`), no con
+  read-modify-write desde la app: dos asesores revisando a la vez se pisarían los contadores.
+- **Generalización**: `normalizarNombre` colapsa tildes, mayúsculas y romanos finales, así que
+  "Matemáticas Aplicadas II", "MATEMATICAS APLICADAS 2" y "matematicas aplicadas ii" alimentan el
+  MISMO patrón.
+
+Va antes de la regla de nombre (Nivel 1) a propósito: una decisión humana repetida vale más que una
+coincidencia textual.

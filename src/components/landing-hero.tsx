@@ -1,145 +1,210 @@
 "use client";
 
 import Link from "next/link";
-import { useRef } from "react";
 import { motion } from "motion/react";
-import {
-  IconSparkles as Sparkles,
-  IconArrowRight as ArrowRight,
-  IconShieldCheck as ShieldCheck,
-} from "@tabler/icons-react";
+import { IconArrowRight as ArrowRight, IconShieldCheck as ShieldCheck } from "@tabler/icons-react";
 
 import type { Configuracion } from "@/lib/marca/configuracion";
-import { Contador } from "./landing-anim";
 
-// Hero de la landing con "wow-factor": un foco (spotlight) que sigue al cursor, orbes que derivan
-// lento, una grilla de puntos difuminada y los contadores animados. Sin librerías nuevas (motion ya
-// está). El foco se mueve actualizando variables CSS por ref (sin re-render).
+// Hero de la landing.
+//
+// LA TESIS: lo más característico de este producto no es que use IA —eso lo dice todo el mundo— sino
+// la EQUIVALENCIA: "lo que tú cursaste vale por esto de acá, en este porcentaje, por esta razón".
+// Así que el hero no la describe: la MUESTRA, con un caso real de una constancia del SENA. Es además
+// el mismo gesto de dos columnas del estudio de homologación, que es el corazón de la herramienta.
+//
+// Lo que había antes y se quitó, a conciencia: foco que seguía al cursor, dos orbes flotando en
+// bucle, grilla de puntos difuminada y tres contadores animados ("100% gratis", "5 min"). Es el
+// paquete decorativo por defecto —no dice nada de homologaciones, podría estar en la landing de
+// cualquier cosa— y el movimiento perpetuo es justo lo que delata una plantilla. La animación que
+// queda ocurre UNA vez, al cargar, y sirve para leer la equivalencia en el orden correcto:
+// primero lo que traes, luego a qué equivale.
+
+const EQUIVALENCIA = {
+  origen: {
+    fuente: "SENA · Tecnólogo en ADSO",
+    nombre: "Desarrollar la solución de software de acuerdo con el diseño",
+    meta: "1008 horas · Aprobado",
+  },
+  destino: [
+    { nombre: "Programación I", creditos: 3, similitud: 92 },
+    { nombre: "Programación II", creditos: 3, similitud: 88 },
+    { nombre: "Bases de Datos", creditos: 3, similitud: 95 },
+  ],
+};
+
 export function LandingHero({
   marca,
   tieneSesion,
-  carreras,
 }: {
   marca: Configuracion;
   tieneSesion: boolean;
-  carreras: number;
+  // Se mantiene en la firma porque la landing lo sigue pasando, pero el hero ya no muestra
+  // contadores: un número de carreras no ayuda a decidir a quien llega a homologar.
+  carreras?: number;
 }) {
-  const ref = useRef<HTMLElement>(null);
-
-  function mover(e: React.MouseEvent) {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    el.style.setProperty("--mx", `${e.clientX - r.left}px`);
-    el.style.setProperty("--my", `${e.clientY - r.top}px`);
-  }
-
   const entra = (delay: number) => ({
-    initial: { opacity: 0, y: 16 },
+    initial: { opacity: 0, y: 14 },
     animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] },
+    transition: {
+      duration: 0.5,
+      delay,
+      ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+    },
   });
 
   return (
-    <section
-      ref={ref}
-      onMouseMove={mover}
-      className="relative overflow-hidden"
-      style={{ "--mx": "50%", "--my": "28%" } as React.CSSProperties}
-    >
-      {/* Foco que sigue al cursor (color de marca). */}
+    <section className="relative overflow-hidden border-b border-slate-200 dark:border-slate-800">
+      {/* Un único gesto de fondo, quieto: una veladura de marca arriba a la derecha que da profundidad
+          sin animarse ni competir con el contenido. */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-70 dark:opacity-50"
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(540px circle at var(--mx) var(--my), color-mix(in oklab, var(--marca) 16%, transparent), transparent 42%)",
+            "radial-gradient(60rem 32rem at 78% -8%, color-mix(in oklab, var(--marca) 12%, transparent), transparent 70%)",
         }}
-      />
-      {/* Grilla de puntos difuminada hacia el centro-arriba. */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-40 dark:opacity-[0.15]"
-        style={{
-          backgroundImage: "radial-gradient(circle, var(--marca) 1px, transparent 1px)",
-          backgroundSize: "26px 26px",
-          maskImage: "radial-gradient(ellipse 70% 55% at 50% 0%, black, transparent)",
-          WebkitMaskImage: "radial-gradient(ellipse 70% 55% at 50% 0%, black, transparent)",
-        }}
-      />
-      {/* Orbes que derivan. */}
-      <div
-        className="pointer-events-none absolute -top-24 -right-20 w-80 h-80 rounded-full bg-marca/20 blur-3xl"
-        style={{ animation: "flotar 9s ease-in-out infinite" }}
-      />
-      <div
-        className="pointer-events-none absolute -bottom-28 -left-20 w-80 h-80 rounded-full bg-acento/20 blur-3xl"
-        style={{ animation: "flotar 11s ease-in-out infinite 1.5s" }}
       />
 
-      <div className="relative max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-24 text-center">
-        <motion.span
-          {...entra(0)}
-          className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-marca bg-marca/10 px-3 py-1.5 rounded-full ring-1 ring-marca/15"
-        >
-          <Sparkles className="w-3.5 h-3.5" /> Homologación asistida por IA
-        </motion.span>
-        <motion.h1
-          {...entra(0.08)}
-          className="mt-6 text-4xl sm:text-5xl font-extrabold tracking-tight leading-[1.1]"
-        >
-          Homologa tu carrera en {marca.nombre} sin filas ni esperas
-        </motion.h1>
-        <motion.p
-          {...entra(0.16)}
-          className="mt-5 text-lg text-slate-500 dark:text-slate-400 max-w-xl mx-auto"
-        >
-          {marca.eslogan ||
-            "Sube tu certificado de notas y descubre en minutos qué materias se te homologan y a qué semestre ingresarías."}
-        </motion.p>
-        <motion.div
-          {...entra(0.24)}
-          className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3"
-        >
-          <Link
-            href="/homologar"
-            className="inline-flex items-center gap-2 bg-marca text-marca-fg font-bold px-7 py-3.5 rounded-xl hover:bg-marca-hover shadow-lg shadow-marca/20 transition-colors"
-          >
-            Homologar mi carrera
-            <ArrowRight className="w-5 h-5" />
-          </Link>
-          {tieneSesion && (
-            <Link
-              href="/mis-homologaciones"
-              className="inline-flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-7 py-3.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+      <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24">
+        <div className="grid lg:grid-cols-[1.05fr_1fr] gap-12 lg:gap-16 items-center">
+          {/* ── Columna del mensaje ── */}
+          <div>
+            <motion.p {...entra(0)} className="etiqueta-registro">
+              Homologación académica
+            </motion.p>
+
+            <motion.h1
+              {...entra(0.06)}
+              className="mt-5 text-[2.5rem] sm:text-[3.5rem] font-extrabold tracking-[-0.02em] leading-[1.04] text-slate-900 dark:text-slate-100"
             >
-              Ver mis homologaciones
-            </Link>
-          )}
-        </motion.div>
-        <motion.p
-          {...entra(0.3)}
-          className="mt-4 text-sm text-slate-400 dark:text-slate-500 flex items-center justify-center gap-1.5"
-        >
-          <ShieldCheck className="w-4 h-4" /> Gratis y sin crear cuenta
-        </motion.p>
+              Lo que ya estudiaste,
+              <br />
+              <span className="text-marca">reconocido</span> en {marca.nombre}.
+            </motion.h1>
 
-        {/* Contadores animados. */}
-        <motion.div {...entra(0.4)} className="mt-12 grid grid-cols-3 gap-4 max-w-md mx-auto">
-          {carreras > 0 && <Stat valor={carreras} sufijo="" label="carreras" />}
-          <Stat valor={5} sufijo=" min" label="tu estimación" />
-          <Stat valor={100} sufijo="%" label="gratis" />
-        </motion.div>
+            <motion.p
+              {...entra(0.12)}
+              className="mt-6 text-lg leading-relaxed text-slate-600 dark:text-slate-300 max-w-lg"
+            >
+              {marca.eslogan ||
+                "Sube tu certificado de notas y descubre qué materias se te homologan y a qué semestre entrarías. Sin filas, sin transcribir nada."}
+            </motion.p>
+
+            <motion.div {...entra(0.18)} className="mt-9 flex flex-col sm:flex-row items-start gap-3">
+              <Link
+                href="/homologar"
+                className="group inline-flex items-center gap-2 bg-marca text-marca-fg font-bold px-7 py-3.5 rounded-xl hover:bg-marca-hover transition-colors"
+              >
+                Homologar mi carrera
+                <ArrowRight className="w-[18px] h-[18px] transition-transform group-hover:translate-x-0.5" />
+              </Link>
+              {tieneSesion && (
+                <Link
+                  href="/mis-homologaciones"
+                  className="inline-flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 px-7 py-3.5 rounded-xl hover:border-slate-400 dark:hover:border-slate-600 transition-colors"
+                >
+                  Ver mis homologaciones
+                </Link>
+              )}
+            </motion.div>
+
+            <motion.p
+              {...entra(0.24)}
+              className="mt-5 text-sm text-slate-500 dark:text-slate-400 flex items-center gap-2"
+            >
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              Gratis, sin crear cuenta y con revisión de un asesor.
+            </motion.p>
+          </div>
+
+          {/* ── Columna de la tesis: una equivalencia real ── */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="relative"
+          >
+            <FichaEquivalencia />
+          </motion.div>
+        </div>
       </div>
     </section>
   );
 }
 
-function Stat({ valor, sufijo, label }: { valor: number; sufijo: string; label: string }) {
+// La ficha que demuestra el producto: una competencia de origen y las asignaturas que cubre. Los
+// números son los de un caso real del SENA (una competencia amplia cubre VARIAS asignaturas), no
+// cifras de adorno.
+function FichaEquivalencia() {
   return (
-    <div className="text-center">
-      <div className="text-2xl sm:text-3xl font-extrabold text-marca tabular-nums">
-        <Contador valor={valor} sufijo={sufijo} />
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_-12px_rgba(0,0,0,0.12)] overflow-hidden">
+      {/* Lo que trae el estudiante */}
+      <div className="p-5 sm:p-6">
+        <p className="etiqueta-registro">Traes</p>
+        <p className="mt-2.5 text-lg leading-snug text-slate-900 dark:text-slate-100">
+          {EQUIVALENCIA.origen.nombre}
+        </p>
+        <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
+          {EQUIVALENCIA.origen.fuente} · {EQUIVALENCIA.origen.meta}
+        </p>
       </div>
-      <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{label}</div>
+
+      {/* La bisagra: el signo de equivalencia. Es el símbolo del producto entero. */}
+      <div className="relative flex items-center gap-3 px-5 sm:px-6">
+        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+        <span
+          aria-hidden
+          className="text-xl leading-none text-marca select-none"
+          title="equivale a"
+        >
+          ≡
+        </span>
+        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+      </div>
+
+      {/* A qué equivale */}
+      <div className="p-5 sm:p-6">
+        <p className="etiqueta-registro">Se te homologa</p>
+        <ul className="mt-3 space-y-2.5">
+          {EQUIVALENCIA.destino.map((a, i) => (
+            <motion.li
+              key={a.nombre}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.45, delay: 0.5 + i * 0.11, ease: [0.22, 1, 0.36, 1] }}
+              className="flex items-center gap-3"
+            >
+              <span className="flex-1 text-[15px] font-medium text-slate-800 dark:text-slate-200">
+                {a.nombre}
+              </span>
+              <span className="text-[13px] text-slate-400 dark:text-slate-500 tabular-nums shrink-0">
+                {a.creditos} cr
+              </span>
+              {/* La similitud como barra + número: el asesor la lee de un vistazo y el estudiante
+                  entiende que no es un sí/no, sino un grado de cobertura. */}
+              <span className="flex items-center gap-2 shrink-0 w-[5.5rem] justify-end">
+                <span className="h-1.5 w-10 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                  <motion.span
+                    initial={{ width: 0 }}
+                    animate={{ width: `${a.similitud}%` }}
+                    transition={{ duration: 0.7, delay: 0.6 + i * 0.11, ease: [0.22, 1, 0.36, 1] }}
+                    className="block h-full rounded-full bg-marca"
+                  />
+                </span>
+                <span className="text-[13px] font-bold tabular-nums text-marca">{a.similitud}%</span>
+              </span>
+            </motion.li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Pie: la promesa que cierra el producto. */}
+      <div className="px-5 sm:px-6 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+        <p className="text-[12.5px] text-slate-500 dark:text-slate-400">
+          Propuesta por el sistema · <span className="font-semibold text-slate-700 dark:text-slate-300">confirma un asesor</span>
+        </p>
+      </div>
     </div>
   );
 }

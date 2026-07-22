@@ -16,16 +16,20 @@ import clsx from "clsx";
 import { sileo } from "sileo";
 
 import { reabrirCaso, guardarNota } from "./acciones";
+import { GestionInscripcion, type MateriaInscripcion } from "./gestion-inscripcion";
 import { SelectorPlantilla } from "./selector-plantilla";
 
 // Resumen de un caso ya cerrado (aprobado/rechazado): cómo quedó la homologación + la nota para el
 // estudiante. El admin puede editar la nota cuando quiera, o reabrir la revisión para cambiar todo.
+// El verificador (puedeEditar=false) solo ve el veredicto y su panel de gestión de inscripción.
 export function ResumenCaso({
   caso,
   homologaciones,
   urlCertificado,
   urlPlan,
   plantillas,
+  puedeEditar = true,
+  gestion = null,
 }: {
   caso: {
     id: string;
@@ -42,6 +46,14 @@ export function ResumenCaso({
   urlCertificado: string | null;
   urlPlan: string | null;
   plantillas: { id: string; texto: string }[];
+  // false para el verificador: no edita notas ni reabre la revisión.
+  puedeEditar?: boolean;
+  // Solo en casos aprobados y para admin/verificador: el panel de gestión de inscripción.
+  gestion?: {
+    estado: string;
+    nota: string | null;
+    materias: MateriaInscripcion[];
+  } | null;
 }) {
   const [pendiente, iniciar] = useTransition();
   const [nota, setNota] = useState(caso.notaAdmin ?? "");
@@ -112,8 +124,19 @@ export function ResumenCaso({
           )}
         </div>
 
+        {/* Gestión de inscripción (aprobados; verificador y admin). Su checklist ya lista las
+            materias homologadas, así que la lista plana de abajo solo sale cuando NO hay panel. */}
+        {aprobado && gestion && (
+          <GestionInscripcion
+            casoId={caso.id}
+            estadoInicial={gestion.estado}
+            notaInicial={gestion.nota}
+            materias={gestion.materias}
+          />
+        )}
+
         {/* Materias homologadas */}
-        {aprobado && homologaciones.length > 0 && (
+        {aprobado && !gestion && homologaciones.length > 0 && (
           <section>
             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">
               Materias homologadas ({homologaciones.length})
@@ -132,7 +155,9 @@ export function ResumenCaso({
           </section>
         )}
 
-        {/* Notas del caso (editables en cualquier momento): la del estudiante y la interna. */}
+        {/* Notas del caso (editables en cualquier momento): la del estudiante y la interna.
+            El verificador no las ve: su nota propia vive en el panel de gestión. */}
+        {puedeEditar && (
         <section>
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">
             Notas del caso
@@ -186,6 +211,7 @@ export function ResumenCaso({
             </div>
           </div>
         </section>
+        )}
 
         {/* Acta de homologación en PDF: solo cuando el caso quedó aprobado. */}
         {aprobado && (
@@ -199,14 +225,16 @@ export function ResumenCaso({
 
         {/* Acciones */}
         <div className="flex flex-col sm:flex-row gap-3">
-          <button
-            type="button"
-            onClick={reabrir}
-            disabled={pendiente}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-marca text-marca-fg hover:bg-marca-hover dark:bg-marca-hover dark:hover:bg-marca disabled:opacity-50"
-          >
-            <Pencil className="w-4 h-4" /> Editar revisión
-          </button>
+          {puedeEditar && (
+            <button
+              type="button"
+              onClick={reabrir}
+              disabled={pendiente}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-marca text-marca-fg hover:bg-marca-hover dark:bg-marca-hover dark:hover:bg-marca disabled:opacity-50"
+            >
+              <Pencil className="w-4 h-4" /> Editar revisión
+            </button>
+          )}
           {urlCertificado && (
             <a
               href={urlCertificado}

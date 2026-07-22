@@ -13,8 +13,11 @@ import { Logotipo } from "@/components/logotipo";
 import type { EstadoCaso } from "@/types";
 import {
   ResultadoHomologacion,
+  aFilaHomologacion,
   type HomologacionFila,
+  type HomologacionFilaCruda,
 } from "@/components/resultado-homologacion";
+import { computarDatosGraficas } from "@/lib/graficas/computar-datos";
 
 export const metadata: Metadata = {
   title: "Seguimiento de tu homologación",
@@ -37,6 +40,7 @@ type CasoSeguimiento = {
   estado: EstadoCaso;
   semestre_sugerido: number | null;
   nota_admin: string | null;
+  pensum_destino_id: string;
   pensum: { carrera: string } | null;
 };
 
@@ -46,7 +50,7 @@ export default async function PaginaSeguimiento({ params }: { params: { token: s
   const { data: casoData } = await servicio
     .from("caso")
     .select(
-      "id, institucion_origen_nombre, estado, semestre_sugerido, nota_admin, pensum:pensum_destino_id (carrera)",
+      "id, institucion_origen_nombre, estado, semestre_sugerido, nota_admin, pensum_destino_id, pensum:pensum_destino_id (carrera)",
     )
     .eq("token_seguimiento", params.token)
     .single();
@@ -65,12 +69,12 @@ export default async function PaginaSeguimiento({ params }: { params: { token: s
     let consulta = servicio
       .from("vinculo")
       .select(
-        "id, materia_origen:materia_origen_id (nombre, creditos), asignatura:asignatura_id (nombre, semestre, creditos)",
+        "id, materia_origen:materia_origen_id (nombre, creditos, tipo, metadatos), asignatura:asignatura_id (nombre, semestre, creditos)",
       )
       .eq("caso_id", caso.id);
     consulta = aprobado ? consulta.eq("estado", "aprobado") : consulta.neq("estado", "rechazado");
     const { data } = await consulta;
-    homologadas = (data ?? []) as unknown as HomologacionFila[];
+    homologadas = ((data ?? []) as unknown as HomologacionFilaCruda[]).map(aFilaHomologacion);
   }
 
   homologadas.sort((a, b) => {
@@ -79,6 +83,20 @@ export default async function PaginaSeguimiento({ params }: { params: { token: s
     if (sa !== sb) return sa - sb;
     return (a.asignatura?.nombre ?? "").localeCompare(b.asignatura?.nombre ?? "", "es");
   });
+
+  let datosGraficas = null;
+  if (caso.pensum_destino_id) {
+    const { data: asignaturas } = await servicio
+      .from("asignatura")
+      .select("creditos, semestre")
+      .eq("pensum_id", caso.pensum_destino_id);
+    if (asignaturas && asignaturas.length > 0) {
+      datosGraficas = computarDatosGraficas(
+        asignaturas as { creditos: number; semestre: number }[],
+        homologadas,
+      );
+    }
+  }
 
   const cfg = await obtenerConfiguracion();
 
@@ -109,6 +127,7 @@ export default async function PaginaSeguimiento({ params }: { params: { token: s
           notaAdmin={caso.nota_admin}
           homologadas={homologadas}
           actaHref={aprobado ? `/seguimiento/${params.token}/acta` : null}
+          datosGraficas={datosGraficas}
         />
       </main>
     </div>

@@ -17,10 +17,17 @@ const RUTAS_PUBLICAS = [
   "/seguimiento",
 ];
 
-// Rutas exclusivas del admin: la bandeja de casos, los planes académicos, los reportes y la
-// configuración de marca. Un estudiante o invitado con sesión que intente entrar aquí por URL
-// directa es devuelto a su flujo.
-const RUTAS_ADMIN = ["/inicio", "/casos", "/carreras", "/reportes", "/configuracion", "/usuarios"];
+// Rutas del panel y qué roles pueden entrar a cada una. La bandeja de casos también es del asesor
+// (la RLS le muestra solo sus asignados) y del verificador (solo aprobados); el resto es del admin.
+// Un estudiante o invitado que intente entrar por URL directa es devuelto a su flujo.
+const RUTAS_PANEL: Record<string, Rol[]> = {
+  "/inicio": ["admin"],
+  "/casos": ["admin", "asesor", "verificador"],
+  "/carreras": ["admin"],
+  "/reportes": ["admin"],
+  "/configuracion": ["admin"],
+  "/usuarios": ["admin"],
+};
 
 // Corre en cada request: renueva la sesión de Supabase y, de paso, hace de portero.
 //   - Sin sesión en una ruta privada  -> al login.
@@ -73,21 +80,23 @@ export async function actualizarSesion(request: NextRequest) {
     return redirigir(request, "/", respuesta);
   }
 
-  // Candado de rol. Solo consultamos el perfil cuando la ruta es de admin, para no pagar una
+  // Candado de rol. Solo consultamos el perfil cuando la ruta es del panel, para no pagar una
   // consulta extra en cada request. Aquí ya sabemos que hay sesión (si no la hubiera, el chequeo
   // de arriba ya habría mandado al login).
-  const esRutaAdmin = RUTAS_ADMIN.some(
-    (admin) => ruta === admin || ruta.startsWith(`${admin}/`),
-  );
-  if (user && esRutaAdmin) {
+  const rolesPermitidos = Object.entries(RUTAS_PANEL).find(
+    ([prefijo]) => ruta === prefijo || ruta.startsWith(`${prefijo}/`),
+  )?.[1];
+  if (user && rolesPermitidos) {
     const { data } = await supabase
       .from("perfil")
       .select("rol")
       .eq("id", user.id)
       .single();
     const rol = (data as { rol: Rol } | null)?.rol ?? "estudiante";
-    if (rol !== "admin") {
-      return redirigir(request, "/homologar", respuesta);
+    if (!rolesPermitidos.includes(rol)) {
+      // Staff en una ruta que no le corresponde -> a su bandeja; estudiante/invitado -> a su flujo.
+      const destino = rol === "asesor" || rol === "verificador" ? "/casos" : "/homologar";
+      return redirigir(request, destino, respuesta);
     }
   }
 

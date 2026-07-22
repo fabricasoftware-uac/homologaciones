@@ -7,9 +7,9 @@ import { createHash } from "node:crypto";
 import { crearClienteServidor } from "@/lib/supabase/servidor";
 import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { extraerTextoPdf } from "@/lib/pdf/extraer";
-import { validarDocumentoAcademico } from "@/lib/groq/validar";
+import { validarDocumentoAcademico } from "@/lib/ia/validar";
 import { procesarCaso } from "@/lib/homologacion/procesar";
-import { ErrorIANoDisponible } from "@/lib/groq/cliente";
+import { ErrorIANoDisponible } from "@/lib/openrouter/cliente";
 import { notificarRecepcion } from "@/lib/homologacion/correo";
 import { verificarTurnstile } from "@/lib/seguridad/turnstile";
 
@@ -25,7 +25,7 @@ export type EstadoHomologacion =
   | null;
 
 const TAMANO_MAXIMO = 10 * 1024 * 1024; // 10 MB, igual que el tope del bucket
-const LIMITE_DIARIO = 5; // homologaciones por día, contadas por IP y por invitado
+const LIMITE_DIARIO = 10; // homologaciones por día, contadas por IP y por invitado
 const MIN_TEXTO_PDF = 30; // mínimo de caracteres para dar el PDF por legible
 
 // Identificador de la IP del solicitante, HASHEADO (sha256): no guardamos la IP en claro, pero

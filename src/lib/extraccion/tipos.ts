@@ -1,4 +1,4 @@
-import type { MateriaExtraida } from "@/lib/groq/extraer-materias";
+import type { MateriaExtraida } from "@/lib/ia/extraer-materias";
 
 export type { MateriaExtraida };
 
@@ -37,6 +37,8 @@ export type UnidadAcademicaNormalizada = {
    *  todavía, solo se prepara el texto. */
   textoEmbedding: string;
   creditos: number | null;
+  /** Horas originales del SENA. Los créditos son una conversión aproximada (round(IH / 48)). */
+  intensidadHoraria: number | null;
   nota: string | null;
   semestre: number | null;
   tipo: string;

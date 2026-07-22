@@ -109,11 +109,14 @@ export function FormularioLogin({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl shadow-slate-900/5 p-7 sm:p-8"
+      className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_16px_40px_-16px_rgba(0,0,0,0.16)] p-7 sm:p-8"
     >
-      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Bienvenido de nuevo</h2>
-      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-6">
-        Inicia sesión para administrar las homologaciones.
+      <p className="etiqueta-registro">Acceso</p>
+      <h2 className="mt-2.5 text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-[-0.01em]">
+        Bienvenido de nuevo
+      </h2>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5 mb-6">
+        Inicia sesión para revisar las homologaciones.
       </p>
 
       <form action={accion} className="space-y-4">

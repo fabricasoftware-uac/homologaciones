@@ -3,13 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { IconMenu2 as Menu } from "@tabler/icons-react";
+import { IconMenu2 as Menu, IconLogout as LogOut } from "@tabler/icons-react";
 import clsx from "clsx";
 
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import type { Perfil } from "@/types";
 import type { Configuracion } from "@/lib/marca/configuracion";
 import { Logotipo } from "@/components/logotipo";
+import { cerrarSesion } from "@/lib/auth/acciones";
 import { NAV_POR_ROL } from "./sidebar";
 
 // Navegación para móvil/tablet: un botón hamburguesa que abre un panel lateral (Sheet) con los
@@ -65,6 +66,22 @@ export function MobileNav({
             );
           })}
         </nav>
+
+        {/* Mismo criterio que el sidebar de escritorio: quien inició sesión con credenciales debe
+            poder salir; solo el invitado anónimo se queda sin el botón. */}
+        {!perfil.esAnonimo && (
+          <div className="px-3 py-3 mt-2 border-t border-white/10">
+            <form action={cerrarSesion}>
+              <button
+                type="submit"
+                className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition-colors"
+              >
+                <LogOut className="w-[18px] h-[18px]" />
+                <span>Cerrar sesión</span>
+              </button>
+            </form>
+          </div>
+        )}
       </SheetContent>
     </Sheet>
   );

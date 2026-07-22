@@ -18,6 +18,7 @@ import {
   IconPlus as Plus,
   IconPencil as Pencil,
   IconChecks as Checks,
+  IconSearch as Search,
 } from "@tabler/icons-react";
 import { motion, AnimatePresence } from "motion/react";
 import clsx from "clsx";
@@ -42,6 +43,7 @@ import {
   editarMateria,
   eliminarMateria,
 } from "./acciones";
+import { AsignarAsesor } from "./asignar-asesor";
 import { BotonReprocesar } from "./boton-reprocesar";
 import { SelectorPlantilla } from "./selector-plantilla";
 
@@ -52,6 +54,8 @@ export type MateriaStudio = {
   creditos: number | null;
   nota: string | null;
   semestre: number | null;
+  // Competencias SENA: horas de formación originales (los créditos ya vienen convertidos ÷48).
+  horas: number | null;
 };
 export type AsignaturaStudio = {
   id: string;
@@ -86,6 +90,8 @@ type Props = {
   urlPlan: string | null;
   notaMinima: number;
   plantillas: { id: string; texto: string }[];
+  // Solo para el admin: asignar el caso a un asesor (los asesores no ven este selector).
+  asignacion?: { asesores: { id: string; nombre: string }[]; asesorId: string | null } | null;
 };
 
 // Color del badge de similitud: por debajo de 85% conviene que el admin lo revise con lupa (la IA
@@ -135,13 +141,18 @@ export function EstudioHomologacion({
   urlPlan,
   notaMinima,
   plantillas,
+  asignacion,
 }: Props) {
   const [pendiente, iniciar] = useTransition();
   // Selección de materias de origen. Normalmente UNA; con el modo "Seleccionar varias" activo se
   // pueden marcar 2+ para vincularlas JUNTAS a una misma asignatura destino (homologación N→1).
   const [origenes, setOrigenes] = useState<string[]>([]);
   const [multiple, setMultiple] = useState(false);
-  const [destino, setDestino] = useState<string | null>(null); // asignatura seleccionada
+  // Asignaturas destino seleccionadas. Con el modo múltiple también se pueden marcar VARIAS del
+  // lado destino (1 materia → N asignaturas, el caso típico SENA). Regla: solo un lado puede tener
+  // varias a la vez (M×N sería ambiguo).
+  const [destinos, setDestinos] = useState<string[]>([]);
+  const destino = destinos.length === 1 ? destinos[0] : null; // compat con el flujo simple
   const [columnaMovil, setColumnaMovil] = useState<"origen" | "destino">("origen"); // pestaña activa en móvil
   const [semestre, setSemestre] = useState(
     caso.semestreSugerido != null ? String(caso.semestreSugerido) : "",
@@ -154,18 +165,20 @@ export function EstudioHomologacion({
   >(null);
 
   const { cerrado } = caso;
-  const vinculoDeMateria = (id: string) => vinculos.find((v) => v.materiaOrigenId === id) ?? null;
-  // Una asignatura destino puede recibir VARIAS materias de origen (p. ej. Cálculo I + Cálculo II
-  // de origen homologan juntas un Cálculo del plan): por eso lista, no primera coincidencia.
+  // Una materia de origen puede tener VARIOS vínculos (una competencia SENA cubre varias
+  // asignaturas), y una asignatura destino puede recibir VARIAS materias (Cálculo I + II → Cálculo):
+  // ambos lados devuelven LISTA, nunca solo la primera coincidencia.
+  const vinculosDeMateria = (id: string) => vinculos.filter((v) => v.materiaOrigenId === id);
   const vinculosDeAsignatura = (id: string) => vinculos.filter((v) => v.asignaturaId === id);
   const aprobadas = vinculos.filter((v) => v.estado === "aprobado").length;
   const pct = materias.length > 0 ? Math.round((aprobadas / materias.length) * 100) : 0;
   // Con UNA sola materia seleccionada aplican los atajos de sugerencia (confirmar/desvincular);
   // con varias, el único camino es elegir destino y vincular el grupo.
   const origen = origenes.length === 1 ? origenes[0] : null;
-  const vinculoOrigen = origen ? vinculoDeMateria(origen) : null;
-  // La sugerencia de la IA llega como vínculo 'pendiente'; si el admin ya la aprobó, queda 'aprobado'.
-  const sugerenciaPendiente = !!vinculoOrigen && vinculoOrigen.estado !== "aprobado";
+  const vinculosOrigen = origen ? vinculosDeMateria(origen) : [];
+  // Las sugerencias de la IA llegan como vínculos 'pendiente'; al aprobarlas quedan 'aprobado'.
+  const pendientesOrigen = vinculosOrigen.filter((v) => v.estado !== "aprobado");
+  const sugerenciaPendiente = pendientesOrigen.length > 0;
 
   // Para mostrar en cada tarjeta CON QUÉ está vinculada, sin tener que hacer clic.
   const asignaturaPorId = new Map(asignaturas.map((a) => [a.id, a] as const));
@@ -174,6 +187,15 @@ export function EstudioHomologacion({
   // Materias de origen en orden alfabético. Como el agrupado por semestre conserva el orden de
   // entrada, cada semestre queda ordenado de la A a la Z. localeCompare "es" respeta tildes y la ñ.
   const materiasOrdenadas = [...materias].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+
+  // Buscador por columna: para cuando el asesor ya se sabe la materia y no quiere recorrer la
+  // lista. Filtra por nombre o código, sin distinguir mayúsculas ni tildes. Las tarjetas
+  // SELECCIONADAS siguen visibles aunque no coincidan: si buscaste una materia, la marcaste y
+  // luego buscas su destino, tu selección no "desaparece" a mitad del enlace.
+  const [filtroOrigen, setFiltroOrigen] = useState("");
+  const [filtroDestino, setFiltroDestino] = useState("");
+  const materiasFiltradas = filtrar(materiasOrdenadas, filtroOrigen, (id) => origenes.includes(id));
+  const asignaturasFiltradas = filtrar(asignaturas, filtroDestino, (id) => destinos.includes(id));
 
   // Al seleccionar una materia de origen que ya está vinculada, desplazamos la columna derecha
   // hasta su asignatura (puede estar muy abajo). Y al revés, al seleccionar una asignatura.
@@ -197,76 +219,134 @@ export function EstudioHomologacion({
 
   function limpiar() {
     setOrigenes([]);
-    setDestino(null);
+    setDestinos([]);
   }
 
   // Clic en una materia de origen: en modo normal reemplaza la selección; en modo múltiple la
-  // agrega/quita del grupo.
+  // agrega/quita del grupo. Solo un lado puede tener varias: si el destino ya tiene 2+, este lado
+  // se queda en 1.
   function alternarOrigen(id: string) {
     setOrigenes((prev) => {
-      if (multiple) return prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      if (multiple) {
+        if (prev.includes(id)) return prev.filter((x) => x !== id);
+        if (prev.length >= 1 && destinos.length > 1) {
+          sileo.info({
+            title: "Solo un lado puede tener varias",
+            description: "Ya marcaste varias asignaturas destino: deja UNA materia de origen.",
+          });
+          return prev;
+        }
+        return [...prev, id];
+      }
+      return prev.length === 1 && prev[0] === id ? [] : [id];
+    });
+  }
+
+  // Clic en una asignatura destino: igual que el origen, pero espejado (1 materia → N asignaturas,
+  // el caso típico de una competencia SENA que cubre varias).
+  function alternarDestino(id: string) {
+    setDestinos((prev) => {
+      if (multiple) {
+        if (prev.includes(id)) return prev.filter((x) => x !== id);
+        if (prev.length >= 1 && origenes.length > 1) {
+          sileo.info({
+            title: "Solo un lado puede tener varias",
+            description: "Ya marcaste varias materias de origen: deja UNA asignatura destino.",
+          });
+          return prev;
+        }
+        return [...prev, id];
+      }
       return prev.length === 1 && prev[0] === id ? [] : [id];
     });
   }
 
   function alternarMultiple() {
     setMultiple((activo) => {
-      // Al apagar el modo, conservamos solo la primera seleccionada (volvemos al flujo simple).
-      if (activo) setOrigenes((prev) => prev.slice(0, 1));
+      // Al apagar el modo, conservamos solo la primera seleccionada de cada lado (flujo simple).
+      if (activo) {
+        setOrigenes((prev) => prev.slice(0, 1));
+        setDestinos((prev) => prev.slice(0, 1));
+      }
       return !activo;
     });
   }
 
-  // Vincula TODAS las materias seleccionadas con la asignatura destino (1 o varias → 1). Si alguna
-  // ya tenía vínculo, se re-vincula (mismo comportamiento del flujo simple).
+  // Vincula la selección en cualquiera de las dos direcciones: N materias → 1 asignatura (Cálculo
+  // I + II → Cálculo) o 1 materia → N asignaturas (una competencia SENA cubre varias). El guard de
+  // selección garantiza que al menos un lado tiene exactamente 1.
   function hacerVincular() {
-    if (origenes.length === 0 || !destino) return;
-    const seleccionadas = [...origenes];
+    if (origenes.length === 0 || destinos.length === 0) return;
+    if (origenes.length > 1 && destinos.length > 1) return; // no debería pasar (guard de selección)
+    // Parejas (materia, asignatura): el lado de 1 se cruza con cada elemento del lado de N.
+    const parejas =
+      destinos.length === 1
+        ? origenes.map((materiaId) => ({ materiaId, asignaturaId: destinos[0] }))
+        : destinos.map((asignaturaId) => ({ materiaId: origenes[0], asignaturaId }));
     iniciar(async () => {
-      for (const materiaId of seleccionadas) {
-        const existente = vinculoDeMateria(materiaId);
+      for (const { materiaId, asignaturaId } of parejas) {
+        // Si ya hay vínculo con ESE destino, se aprueba ese. Reemplazo (re-vincular el único vínculo
+        // existente hacia otra asignatura) SOLO en el flujo 1→1 clásico; al agregar N destinos la
+        // intención es SUMAR, no pisar lo que había.
+        const existentes = vinculosDeMateria(materiaId);
+        const mismoDestino = existentes.find((v) => v.asignaturaId === asignaturaId);
+        const reemplazable =
+          !mismoDestino && parejas.length === 1 && existentes.length === 1 ? existentes[0] : null;
         const fd = new FormData();
         fd.set("casoId", caso.id);
         fd.set("materiaOrigenId", materiaId);
-        fd.set("asignaturaId", destino);
-        fd.set("vinculoId", existente?.id ?? "");
+        fd.set("asignaturaId", asignaturaId);
+        fd.set("vinculoId", (mismoDestino ?? reemplazable)?.id ?? "");
         await vincular(fd);
       }
       sileo.success({
         title:
-          seleccionadas.length > 1
-            ? `${seleccionadas.length} materias vinculadas a la asignatura`
-            : "Materias vinculadas",
+          destinos.length > 1
+            ? `Materia vinculada a ${destinos.length} asignaturas`
+            : origenes.length > 1
+              ? `${origenes.length} materias vinculadas a la asignatura`
+              : "Materias vinculadas",
       });
       limpiar();
     });
   }
 
   function hacerDesvincular() {
-    const existente = origen ? vinculoDeMateria(origen) : null;
-    if (!existente) return;
+    if (vinculosOrigen.length === 0) return;
+    const aQuitar = [...vinculosOrigen];
     iniciar(async () => {
-      const fd = new FormData();
-      fd.set("casoId", caso.id);
-      fd.set("vinculoId", existente.id);
-      await desvincular(fd);
-      sileo.success({ title: "Homologación quitada" });
+      for (const v of aQuitar) {
+        const fd = new FormData();
+        fd.set("casoId", caso.id);
+        fd.set("vinculoId", v.id);
+        await desvincular(fd);
+      }
+      sileo.success({
+        title: aQuitar.length > 1 ? `${aQuitar.length} homologaciones quitadas` : "Homologación quitada",
+      });
       limpiar();
     });
   }
 
-  // Aprueba de un solo clic la homologación que sugirió la IA para la materia seleccionada, sin que
-  // el admin tenga que volver a elegir la asignatura destino. Reusa la pareja que ya propuso la IA.
+  // Aprueba de un solo clic TODAS las homologaciones que sugirió la IA para la materia seleccionada,
+  // sin que el admin tenga que volver a elegir cada asignatura destino (una competencia SENA puede
+  // traer varias sugerencias a la vez).
   function hacerConfirmar() {
-    if (!origen || !vinculoOrigen) return;
+    if (!origen || pendientesOrigen.length === 0) return;
+    const aConfirmar = [...pendientesOrigen];
     iniciar(async () => {
-      const fd = new FormData();
-      fd.set("casoId", caso.id);
-      fd.set("materiaOrigenId", origen);
-      fd.set("asignaturaId", vinculoOrigen.asignaturaId);
-      fd.set("vinculoId", vinculoOrigen.id);
-      await vincular(fd);
-      sileo.success({ title: "Vinculación confirmada" });
+      for (const v of aConfirmar) {
+        const fd = new FormData();
+        fd.set("casoId", caso.id);
+        fd.set("materiaOrigenId", origen);
+        fd.set("asignaturaId", v.asignaturaId);
+        fd.set("vinculoId", v.id);
+        await vincular(fd);
+      }
+      sileo.success({
+        title:
+          aConfirmar.length > 1 ? `${aConfirmar.length} vinculaciones confirmadas` : "Vinculación confirmada",
+      });
       limpiar();
     });
   }
@@ -371,6 +451,13 @@ export function EstudioHomologacion({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {asignacion && !cerrado && (
+            <AsignarAsesor
+              casoId={caso.id}
+              asesores={asignacion.asesores}
+              asesorId={asignacion.asesorId}
+            />
+          )}
           {urlCertificado && (
             <a
               href={urlCertificado}
@@ -541,6 +628,15 @@ export function EstudioHomologacion({
           iconoClase="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
           acento="text-slate-400 dark:text-slate-500"
           claseRaiz={columnaMovil === "origen" ? "flex md:flex" : "hidden md:flex"}
+          herramientas={
+            <BuscadorColumna
+              valor={filtroOrigen}
+              onCambiar={setFiltroOrigen}
+              placeholder="Buscar materia de origen…"
+              visibles={materiasFiltradas.length}
+              total={materias.length}
+            />
+          }
         >
           {/* Herramientas de la columna origen: alta manual + modo de selección múltiple (para
               vincular VARIAS materias a una sola asignatura de un tiro). */}
@@ -556,7 +652,7 @@ export function EstudioHomologacion({
               <button
                 type="button"
                 onClick={alternarMultiple}
-                title="Marca varias materias y vincúlalas juntas a una misma asignatura"
+                title="Marca varias tarjetas de UN lado (varias materias → una asignatura, o una materia → varias asignaturas) y vincúlalas de un tiro"
                 className={clsx(
                   "flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold rounded-xl px-3 py-2.5 border-2 transition-colors",
                   multiple
@@ -569,21 +665,30 @@ export function EstudioHomologacion({
               </button>
             </div>
           )}
-          {agrupar(materiasOrdenadas).map(([sem, items]) => (
-            <GrupoSemestre key={`o-${sem}`} sem={sem}>
-              {items.map((m) => {
-                const v = vinculoDeMateria(m.id);
+          {/* Vistazo GENERAL del origen: lista plana, sin agrupar por semestre. El semestre de otra
+              institución no aporta a la decisión (y el SENA ni siquiera tiene), y el extractor puede
+              asignarlo distinto en cada reproceso: agrupar aquí solo desordenaba la columna. */}
+          <div className="space-y-2">
+            {materiasFiltradas.map((m) => {
+                // TODOS los vínculos de la materia (una competencia SENA puede cubrir varias
+                // asignaturas): la tarjeta lista cada destino, no solo el primero.
+                const vs = vinculosDeMateria(m.id);
                 const seleccionada = origenes.includes(m.id);
-                const dest = v ? asignaturaPorId.get(v.asignaturaId) : null;
+                const nombresDestino = vs
+                  .map((v) => asignaturaPorId.get(v.asignaturaId)?.nombre)
+                  .filter((n): n is string => !!n);
+                const algunAprobado = vs.some((v) => v.estado === "aprobado");
                 // Avisos académicos: nota por debajo del mínimo, o destino con más créditos que el
-                // origen (se estaría homologando una materia "más pesada" con una más liviana).
+                // origen (se estaría homologando una materia "más pesada" con una más liviana). El
+                // aviso de créditos solo tiene sentido en el vínculo 1:1.
                 const notaNum = parseNota(m.nota);
                 const avisos: string[] = [];
                 if (notaNum != null && notaNum < notaMinima) {
                   avisos.push(`Nota ${notaNum} (mín. ${notaMinima})`);
                 }
-                if (dest && m.creditos != null && dest.creditos > m.creditos) {
-                  avisos.push(`Créditos ${m.creditos}→${dest.creditos}`);
+                const unicoDest = vs.length === 1 ? asignaturaPorId.get(vs[0].asignaturaId) : null;
+                if (unicoDest && m.creditos != null && unicoDest.creditos > m.creditos) {
+                  avisos.push(`Créditos ${m.creditos}→${unicoDest.creditos}`);
                 }
                 return (
                   <Tarjeta
@@ -592,23 +697,28 @@ export function EstudioHomologacion({
                     codigo={m.codigo}
                     nombre={m.nombre}
                     creditos={m.creditos}
+                    horas={m.horas}
                     nota={m.nota}
                     alerta={avisos.length > 0 ? avisos.join(" · ") : undefined}
-                    estado={v?.estado ?? null}
+                    estado={algunAprobado ? "aprobado" : (vs[0]?.estado ?? null)}
                     vinculadoCon={
-                      dest ? { nombres: [dest.nombre], aprobado: v?.estado === "aprobado" } : undefined
+                      nombresDestino.length > 0
+                        ? { nombres: nombresDestino, aprobado: algunAprobado }
+                        : undefined
                     }
                     seleccionada={seleccionada}
-                    resaltada={destino != null && v?.asignaturaId === destino}
+                    resaltada={destino != null && vs.some((v) => v.asignaturaId === destino)}
                     tipo="origen"
                     onClick={cerrado ? undefined : () => alternarOrigen(m.id)}
                     onEditar={cerrado ? undefined : () => setEditorMateria({ modo: "editar", materia: m })}
                   />
                 );
-              })}
-            </GrupoSemestre>
-          ))}
+            })}
+          </div>
           {materias.length === 0 && <Vacio>No se detectaron materias.</Vacio>}
+          {materias.length > 0 && materiasFiltradas.length === 0 && (
+            <Vacio>Ninguna materia coincide con “{filtroOrigen}”.</Vacio>
+          )}
         </Columna>
 
         <Columna
@@ -619,14 +729,23 @@ export function EstudioHomologacion({
           acento="text-marca dark:text-slate-300"
           fondo="bg-slate-50/40 dark:bg-slate-900/40"
           claseRaiz={columnaMovil === "destino" ? "flex md:flex" : "hidden md:flex"}
+          herramientas={
+            <BuscadorColumna
+              valor={filtroDestino}
+              onCambiar={setFiltroDestino}
+              placeholder="Buscar asignatura del plan…"
+              visibles={asignaturasFiltradas.length}
+              total={asignaturas.length}
+            />
+          }
         >
-          {agrupar(asignaturas).map(([sem, items]) => (
+          {agrupar(asignaturasFiltradas).map(([sem, items]) => (
             <GrupoSemestre key={`d-${sem}`} sem={sem}>
               {items.map((a) => {
                 // Una asignatura puede recibir VARIAS materias de origen (homologación 2→1):
                 // el estado y el pie de la tarjeta reflejan el conjunto, no solo la primera.
                 const vs = vinculosDeAsignatura(a.id);
-                const seleccionada = destino === a.id;
+                const seleccionada = destinos.includes(a.id);
                 const aprobada = vs.some((v) => v.estado === "aprobado");
                 const pendiente = vs.find((v) => v.estado === "pendiente");
                 const nombresOrigen = vs
@@ -652,19 +771,22 @@ export function EstudioHomologacion({
                     seleccionada={seleccionada}
                     resaltada={origen != null && vs.some((v) => v.materiaOrigenId === origen)}
                     tipo="destino"
-                    onClick={cerrado ? undefined : () => setDestino(seleccionada ? null : a.id)}
+                    onClick={cerrado ? undefined : () => alternarDestino(a.id)}
                   />
                 );
               })}
             </GrupoSemestre>
           ))}
           {asignaturas.length === 0 && <Vacio>Esta carrera no tiene plan cargado aún.</Vacio>}
+          {asignaturas.length > 0 && asignaturasFiltradas.length === 0 && (
+            <Vacio>Ninguna asignatura coincide con “{filtroDestino}”.</Vacio>
+          )}
         </Columna>
       </div>
 
       {/* Barra flotante de vinculación */}
       <AnimatePresence>
-        {!cerrado && origenes.length > 0 && (
+        {!cerrado && (origenes.length > 0 || destinos.length > 0) && (
           <motion.div
             initial={{ y: 80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -673,36 +795,46 @@ export function EstudioHomologacion({
           >
             <div className="text-center md:text-left min-w-0">
               <span className="text-sm font-medium block">
-                {destino
-                  ? origenes.length > 1
-                    ? `Vincular las ${origenes.length} materias con la asignatura`
-                    : "Vincular la materia con la asignatura"
-                  : origenes.length > 1
-                    ? `${origenes.length} materias seleccionadas · elige la asignatura destino`
-                    : sugerenciaPendiente
-                      ? "La IA sugirió esta homologación"
-                      : vinculoOrigen
-                        ? "Materia ya homologada"
-                        : "Elige una asignatura destino"}
+                {origenes.length > 0 && destinos.length > 0
+                  ? destinos.length > 1
+                    ? `Vincular la materia con las ${destinos.length} asignaturas`
+                    : origenes.length > 1
+                      ? `Vincular las ${origenes.length} materias con la asignatura`
+                      : "Vincular la materia con la asignatura"
+                  : origenes.length === 0
+                    ? `${destinos.length} asignatura${destinos.length > 1 ? "s" : ""} seleccionada${destinos.length > 1 ? "s" : ""} · elige la materia de origen`
+                    : origenes.length > 1
+                      ? `${origenes.length} materias seleccionadas · elige la asignatura destino`
+                      : sugerenciaPendiente
+                        ? pendientesOrigen.length > 1
+                          ? `La IA sugirió ${pendientesOrigen.length} homologaciones`
+                          : "La IA sugirió esta homologación"
+                        : vinculosOrigen.length > 0
+                          ? "Materia ya homologada"
+                          : "Elige una asignatura destino"}
               </span>
               {/* La justificación de la IA, para que el admin entienda el porqué de la sugerencia. */}
               {/* La barra es SIEMPRE oscura: nada de variantes dark: aquí (un dark:text-slate-500
                   la volvía ilegible sobre el fondo oscuro). */}
-              {!destino && sugerenciaPendiente && vinculoOrigen?.razon && (
+              {destinos.length === 0 && sugerenciaPendiente && pendientesOrigen[0]?.razon && (
                 <span className="text-xs text-slate-400 block mt-0.5 max-w-md">
-                  {vinculoOrigen.razon}
+                  {pendientesOrigen[0].razon}
                 </span>
               )}
             </div>
             <div className="flex flex-wrap items-center justify-center md:justify-end gap-2">
-              {destino ? (
+              {origenes.length > 0 && destinos.length > 0 ? (
                 <button
                   onClick={hacerVincular}
                   disabled={pendiente}
                   className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
                 >
                   <LinkIcon className="w-4 h-4" />
-                  {origenes.length > 1 ? `Vincular ${origenes.length} materias` : "Vincular"}
+                  {destinos.length > 1
+                    ? `Vincular ${destinos.length} asignaturas`
+                    : origenes.length > 1
+                      ? `Vincular ${origenes.length} materias`
+                      : "Vincular"}
                 </button>
               ) : (
                 <>
@@ -714,10 +846,13 @@ export function EstudioHomologacion({
                       disabled={pendiente}
                       className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-xl font-bold text-sm"
                     >
-                      <Check className="w-4 h-4" strokeWidth={3} /> Confirmar vinculación
+                      <Check className="w-4 h-4" strokeWidth={3} />
+                      {pendientesOrigen.length > 1
+                        ? `Confirmar ${pendientesOrigen.length} vinculaciones`
+                        : "Confirmar vinculación"}
                     </button>
                   )}
-                  {vinculoOrigen && (
+                  {vinculosOrigen.length > 0 && (
                     <button
                       onClick={hacerDesvincular}
                       disabled={pendiente}
@@ -838,6 +973,79 @@ export function EstudioHomologacion({
   );
 }
 
+// Coincidencia del buscador: minúsculas y sin tildes ("calculo" encuentra "Cálculo"), sobre el
+// nombre y el código. `esSeleccionada` mantiene visibles las tarjetas marcadas.
+function normalizarBusqueda(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
+    .trim();
+}
+
+function filtrar<T extends { id: string; nombre: string; codigo: string | null }>(
+  items: T[],
+  filtro: string,
+  esSeleccionada: (id: string) => boolean,
+): T[] {
+  const consulta = normalizarBusqueda(filtro);
+  if (!consulta) return items;
+  return items.filter(
+    (item) =>
+      esSeleccionada(item.id) ||
+      normalizarBusqueda(item.nombre).includes(consulta) ||
+      (item.codigo !== null && normalizarBusqueda(item.codigo).includes(consulta)),
+  );
+}
+
+// Campo de búsqueda de una columna: vive FIJO bajo el encabezado (no se pierde al hacer scroll),
+// muestra "n de m" mientras filtra y se limpia con la X o con Escape.
+function BuscadorColumna({
+  valor,
+  onCambiar,
+  placeholder,
+  visibles,
+  total,
+}: {
+  valor: string;
+  onCambiar: (v: string) => void;
+  placeholder: string;
+  visibles: number;
+  total: number;
+}) {
+  return (
+    <div className="relative">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
+      <input
+        type="text"
+        value={valor}
+        onChange={(e) => onCambiar(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCambiar("");
+        }}
+        placeholder={placeholder}
+        className="w-full pl-9 pr-24 py-2 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30 transition-colors"
+      />
+      {valor && (
+        <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+          <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">
+            {visibles} de {total}
+          </span>
+          <button
+            type="button"
+            onClick={() => onCambiar("")}
+            title="Limpiar búsqueda (Esc)"
+            aria-label="Limpiar búsqueda"
+            className="p-1 rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Columna({
   etiqueta,
   titulo,
@@ -846,6 +1054,7 @@ function Columna({
   acento,
   fondo,
   claseRaiz,
+  herramientas,
   children,
 }: {
   etiqueta: string;
@@ -855,6 +1064,8 @@ function Columna({
   acento: string;
   fondo?: string;
   claseRaiz?: string;
+  // Barra fija bajo el encabezado (p. ej. el buscador): no se desplaza con la lista.
+  herramientas?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -871,6 +1082,11 @@ function Columna({
           <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate leading-none">{titulo}</h2>
         </div>
       </div>
+      {herramientas && (
+        <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+          {herramientas}
+        </div>
+      )}
       <div className="flex-1 md:overflow-y-auto p-5 space-y-6">{children}</div>
     </div>
   );
@@ -919,6 +1135,7 @@ function Tarjeta({
   codigo,
   nombre,
   creditos,
+  horas,
   nota,
   similitud,
   razon,
@@ -936,6 +1153,8 @@ function Tarjeta({
   codigo: string | null;
   nombre: string;
   creditos: number | null;
+  // Horas de formación (SENA): si vienen, el chip muestra la conversión "N h ≈ M cr".
+  horas?: number | null;
   nota: string | null;
   similitud?: number;
   razon?: string;
@@ -1062,7 +1281,11 @@ function Tarjeta({
           destino iba en azul fijo, que chocaba con el color de marca y con los temas oscuros azulados. */}
       <h3 className="font-bold text-sm leading-snug text-slate-800 dark:text-slate-100">{nombre}</h3>
       <div className="flex items-center gap-2 mt-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-        {creditos != null && <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{creditos} CR</span>}
+        {creditos != null && (
+          <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+            {horas != null ? `${horas} h ≈ ${creditos} cr` : `${creditos} CR`}
+          </span>
+        )}
         {nota && (
           <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded ml-auto">
             Nota {nota}

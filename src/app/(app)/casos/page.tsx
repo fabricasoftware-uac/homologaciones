@@ -192,13 +192,22 @@ export default async function PaginaCasos({
               })}
             </div>
 
-            <a
-              href={hrefCon({}, "/casos/export")}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Exportar CSV
-            </a>
+            <div className="flex items-center gap-2">
+              <a
+                href={hrefCon({}, "/casos/export")}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Exportar CSV
+              </a>
+              <a
+                href={`${hrefCon({}, "/casos/export")}${hrefCon({}, "/casos/export").includes("?") ? "&" : "?"}formato=xlsx`}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Exportar Excel
+              </a>
+            </div>
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden animate-in fade-in-0 slide-in-from-bottom-2 fill-mode-both duration-500" style={{ animationDelay: "160ms" }}>

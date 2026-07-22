@@ -1,8 +1,14 @@
 import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { llamarGemini, generarEmbeddings } from "@/lib/gemini/cliente";
-import { extraerYNormalizar, type UnidadAcademicaNormalizada } from "@/lib/extraccion";
+
+import { llamarOpenRouter, generarEmbeddings, DIMENSION_EMBEDDING } from "@/lib/openrouter/cliente";
+import { mapaConcurrente } from "@/lib/concurrencia";
+import {
+  extraerYNormalizar,
+  detectarInstitucion,
+  type UnidadAcademicaNormalizada,
+} from "@/lib/extraccion";
 import { decidirVinculos } from "./motor";
 
 // Orquestador del pipeline de homologación (Fases 4 + 5). Corre como "el sistema" (cliente con la
@@ -21,6 +27,9 @@ export async function procesarCaso(
   casoId: string,
   textoPdf: string,
   bytesPdf?: Uint8Array,
+  // ignorarCache: reproceso explícito del admin — el motor salta el caché de decisiones para
+  // regenerar la propuesta de verdad (si no, el Nivel 0 reproduciría exactamente lo mismo).
+  opciones?: { ignorarCache?: boolean },
 ): Promise<void> {
   const supabase = crearClienteServicio();
 
@@ -68,7 +77,11 @@ export async function procesarCaso(
   let metodoExtraccion: string;
   let tipoInstitucion: string;
 
-  const previa = await buscarExtraccionPrevia(supabase, hashDocumento, casoId);
+  // El reuso exige que el TIPO de institución detectado coincida: el mismo PDF procesado antes bajo
+  // "SENA" (mal etiquetado) dejó unidades interpretadas como competencias (créditos ÷48, semestres
+  // borrados); reusarlas para un caso universitario propaga la corrupción.
+  const tipoDetectado = detectarInstitucion(filaCaso.institucion_origen_nombre ?? "");
+  const previa = await buscarExtraccionPrevia(supabase, hashDocumento, casoId, tipoDetectado);
   if (previa) {
     unidades = previa.unidades;
     embsUnidades = previa.embsUnidades;
@@ -88,8 +101,9 @@ export async function procesarCaso(
     metodoExtraccion = resultado.metodo;
     tipoInstitucion = resultado.tipoInstitucion;
 
-    // FASE 5: embedding de cada unidad desde su texto_embedding. Best-effort: si Gemini no responde
-    // (o no hay key), queda null y el pipeline sigue igual (el motor cae al camino legacy).
+    // FASE 5: embedding de cada unidad desde su texto_embedding. Best-effort: si el proveedor de
+    // embeddings no responde (o no hay key), queda null y el pipeline sigue igual (el motor cae al
+    // camino legacy).
     embsUnidades = await generarEmbeddings(unidades.map((u) => u.textoEmbedding));
   }
   const esSena = tipoInstitucion === "sena";
@@ -103,10 +117,10 @@ export async function procesarCaso(
     semestre_origen: u.semestre,
     tipo: u.tipo,
     metadatos: u.metadatos,
+    intensidad_horaria: u.intensidadHoraria,
     descripcion: u.descripcion,
     componentes: u.componentes,
     texto_embedding: u.textoEmbedding,
-    // pgvector acepta el literal de texto "[...]"; JSON.stringify de un number[] produce justo eso.
     embedding: embsUnidades[idx] ? JSON.stringify(embsUnidades[idx]) : null,
   }));
 
@@ -132,6 +146,7 @@ export async function procesarCaso(
       embsUnidades,
       asignaturas,
       esSena,
+      ignorarCache: opciones?.ignorarCache ?? false,
     });
 
     const filasVinculo = decididos
@@ -149,11 +164,26 @@ export async function procesarCaso(
       if (error) throw error;
     }
 
-    // Estimamos el semestre: usamos Gemini (gemini-2.5-flash-lite) como primera opción, y si no
-    // responde, caemos en el algoritmo determinístico de créditos.
+    // Si no se generó NINGÚN vínculo teniendo unidades extraídas, la IA probablemente
+    // no respondió. Dejamos nota para el estudiante y NO estimamos semestre (sería
+    // engañoso decir "semestre 1" cuando en realidad la IA no pudo evaluar).
+    if (filasVinculo.length === 0) {
+      await supabase
+        .from("caso")
+        .update({
+          estado: "en_revision",
+          semestre_sugerido: null,
+          nota_admin: "La IA no está disponible en este momento. Un asesor de la Autónoma del Cauca revisará tu caso manualmente y te contactará con el resultado definitivo.",
+        })
+        .eq("id", casoId);
+      return;
+    }
+
+    // Estimamos el semestre: primero se lo pedimos al LLM (cadena de OpenRouter) y, si no responde,
+    // caemos en el algoritmo determinístico de créditos.
     const idsHomologadas = new Set(filasVinculo.map((f) => f.asignatura_id));
     semestreSugerido =
-      (await estimarSemestreConGemini(asignaturas, idsHomologadas)) ??
+      (await estimarSemestreConGemini(asignaturas, idsHomologadas, esSena)) ??
       estimarSemestre(asignaturas, idsHomologadas);
   }
 
@@ -190,13 +220,21 @@ async function asegurarEmbeddingsAsignaturas(
   if (faltan.length === 0) return;
 
   const embs = await generarEmbeddings(faltan.map((a) => a.nombre));
-  let ok = 0;
-  for (let i = 0; i < faltan.length; i++) {
+
+  // Un UPDATE por asignatura, pero en paralelo con tope: en serie, un pensum de 60 asignaturas eran
+  // 60 viajes a Postgres encadenados la primera vez que se procesaba un caso de esa carrera — la
+  // espera más larga y más desconcertante de todo el flujo, porque solo ocurre una vez por pensum.
+  const escrituras = await mapaConcurrente(faltan, 6, async (asignatura, i) => {
     const e = embs[i];
-    if (!e) continue;
-    await supabase.from("asignatura").update({ embedding: JSON.stringify(e) }).eq("id", faltan[i].id);
-    ok++;
-  }
+    if (!e) return false;
+    const { error } = await supabase
+      .from("asignatura")
+      .update({ embedding: JSON.stringify(e) })
+      .eq("id", asignatura.id);
+    return !error;
+  });
+
+  const ok = escrituras.filter(Boolean).length;
   console.log(`[embeddings] Asignaturas embebidas: ${ok}/${faltan.length} (pensum ${pensumId}).`);
 }
 
@@ -208,6 +246,7 @@ async function buscarExtraccionPrevia(
   supabase: ReturnType<typeof crearClienteServicio>,
   hashDocumento: string,
   casoActualId: string,
+  tipoDetectado: string,
 ): Promise<{
   casoId: string;
   metodo: string;
@@ -220,6 +259,9 @@ async function buscarExtraccionPrevia(
       .from("caso")
       .select("id, metodo_extraccion, tipo_institucion")
       .eq("hash_documento", hashDocumento)
+      // Solo reusamos extracciones interpretadas con el MISMO tipo de institución: la lectura SENA
+      // (horas→créditos, sin semestres) y la universitaria no son intercambiables.
+      .eq("tipo_institucion", tipoDetectado)
       .neq("id", casoActualId)
       .not("metodo_extraccion", "is", null)
       .order("creado_en", { ascending: false })
@@ -231,12 +273,13 @@ async function buscarExtraccionPrevia(
     const { data: mats } = await supabase
       .from("materia_origen")
       .select(
-        "nombre, creditos, nota, semestre_origen, tipo, metadatos, descripcion, componentes, texto_embedding, embedding",
+        "nombre, creditos, intensidad_horaria, nota, semestre_origen, tipo, metadatos, descripcion, componentes, texto_embedding, embedding",
       )
       .eq("caso_id", filaPrev.id);
     const filas = (mats ?? []) as {
       nombre: string;
       creditos: number | null;
+      intensidad_horaria: number | null;
       nota: string | null;
       semestre_origen: number | null;
       tipo: string | null;
@@ -254,6 +297,7 @@ async function buscarExtraccionPrevia(
       componentes: r.componentes ?? [],
       textoEmbedding: r.texto_embedding ?? r.nombre,
       creditos: r.creditos,
+      intensidadHoraria: r.intensidad_horaria,
       nota: r.nota,
       semestre: r.semestre_origen,
       tipo: r.tipo ?? "materia",
@@ -261,11 +305,14 @@ async function buscarExtraccionPrevia(
     }));
 
     // PostgREST devuelve el vector como string "[...]"; lo volvemos number[] para el motor.
+    // Se exige la dimensión VIGENTE: un caso viejo puede traer vectores del modelo de embeddings
+    // anterior, y compararlos contra las asignaturas de hoy haría reventar el <=> de pgvector.
+    // Descartarlos deja que se regeneren, que es más barato que arrastrar un vector incomparable.
     const embsUnidades: (number[] | null)[] = filas.map((r) => {
       if (!r.embedding) return null;
       try {
         const v = typeof r.embedding === "string" ? JSON.parse(r.embedding) : r.embedding;
-        return Array.isArray(v) && v.length > 0 ? (v as number[]) : null;
+        return Array.isArray(v) && v.length === DIMENSION_EMBEDDING ? (v as number[]) : null;
       } catch {
         return null;
       }
@@ -285,13 +332,10 @@ async function buscarExtraccionPrevia(
   }
 }
 
-// Usa Gemini para estimar en qué semestre quedaría el estudiante. Le pasa la lista completa de
-// asignaturas del pensum (organizadas por semestre) y cuáles homologó, y le pide que razone cuál
-// sería el primer semestre que todavía le quedaría por cursar. Si Gemini no responde o devuelve un
-// valor inválido, devuelve null para que el pipeline caiga en el algoritmo determinístico.
 async function estimarSemestreConGemini(
   asignaturas: { id: string; nombre: string; creditos: number; semestre: number }[],
   homologadas: Set<string>,
+  esSena = false,
 ): Promise<number | null> {
   const numSemestres = asignaturas.reduce((max, a) => Math.max(max, a.semestre), 0);
   if (numSemestres === 0) return null;
@@ -308,29 +352,43 @@ async function estimarSemestreConGemini(
     porSemestre.set(a.semestre, agrupado);
   }
 
+  const creditosHomologados = asignaturas
+    .filter((a) => homologadas.has(a.id))
+    .reduce((s, a) => s + a.creditos, 0);
+  const creditosTotales = asignaturas.reduce((s, a) => s + a.creditos, 0);
+  const pct = creditosTotales > 0 ? Math.round((creditosHomologados / creditosTotales) * 100) : 0;
+
   const resumen: string[] = [];
   for (let sem = 1; sem <= numSemestres; sem++) {
     const d = porSemestre.get(sem);
     if (!d) continue;
     resumen.push(
-      `Semestre ${sem} (${d.total} cr totales):\n  Homologadas: ${d.homologadas.join(", ") || "ninguna"}\n  NO homologadas: ${d.noHomologadas.join(", ") || "ninguna"}`,
+      `Semestre ${sem} (${d.total} cr): Homologadas: ${d.homologadas.join(", ") || "ninguna"} | NO: ${d.noHomologadas.join(", ") || "ninguna"}`,
     );
   }
-  const texto = resumen.join("\n\n");
+  const texto = `Créditos homologados: ${creditosHomologados} de ${creditosTotales} (${pct}%)\n\n` + resumen.join("\n");
 
-  const sistema = `Eres un asesor académico experto en homologaciones universitarias en Colombia. Recibes un resumen del plan de estudios organizado por semestre, indicando qué asignaturas homologó el estudiante y cuáles NO. Tu tarea: estimar en qué semestre quedaría el estudiante. Reglas:
-- El estudiante "se salta" un semestre solo si homologó TODAS o CASI TODAS las asignaturas de ese semestre (y los anteriores).
-- Si homologó la mayoría pero le faltan 1 o 2 asignaturas clave de un semestre, normalmente NO se salta ese semestre completo.
-- El resultado es el PRIMER semestre que todavía le quedaría por cursar.
-- Responde ÚNICAMENTE un objeto JSON con esta forma: {"semestre": 1, "razon": "explicación breve en español"}`;
+  let sistema =
+    "Eres un asesor académico experto en homologaciones. Recibes el resumen de un plan de estudios con los créditos homologados por un estudiante y los que NO. Tu tarea: estimar en qué semestre quedaría.\n\n" +
+    "Reglas:\n" +
+    "- El porcentaje de créditos homologados es tu guía PRINCIPAL: " + pct + "% de " + creditosTotales + " créditos en " + numSemestres + " semestres.\n" +
+    "- Estima PROPORCIONALMENTE: " + pct + "% de " + numSemestres + " semestres = aproximadamente semestre " + Math.max(1, Math.round((pct / 100) * numSemestres)) + ".\n" +
+    "- NO importa el orden de los semestres: si hay materias homologadas en semestre 7, el estudiante puede que ya está en ese nivel aunque falten materias de semestre 1, esto depende de los creditos homologados en total.\n" +
+    "- Redondea SIEMPRE hacia arriba si estás en duda.\n" +
+    "- Responde ÚNICAMENTE un objeto JSON: {\"semestre\": 1, \"razon\": \"breve\"}";
 
-  const contenido = await llamarGemini(
-    [
-      { role: "system", content: sistema },
-      { role: "user", content: texto },
-    ],
-    { json: true, temperatura: 0, modelos: ["gemini-2.5-flash-lite"] },
-  );
+  if (esSena) {
+    sistema +=
+      "\n\nSENA: Las competencias del SENA se miden en HORAS, no créditos. Una competencia de 1008h cubre muchísimo más que una materia de 3cr. El porcentaje de créditos SUBESTIMA el nivel real. Sé mas generoso con los semestres al estimado proporcional.";
+  }
+
+  const mensajes = [
+    { role: "system" as const, content: sistema },
+    { role: "user" as const, content: texto },
+  ];
+
+  const contenido =
+    (await llamarOpenRouter(mensajes, { json: true, temperatura: 0, maxTokens: 500 }));
 
   if (!contenido) return null;
 
@@ -339,12 +397,12 @@ async function estimarSemestreConGemini(
     const semestre = Number(parsed.semestre);
     if (Number.isInteger(semestre) && semestre >= 1 && semestre <= numSemestres) {
       const razon = typeof parsed.razon === "string" ? parsed.razon.trim() : "";
-      console.log(`[gemini] Semestre estimado: ${semestre}${razon ? ` (${razon})` : ""}`);
+      console.log(`[semestre] Estimado: ${semestre}${razon ? ` (${razon})` : ""}`);
       return semestre;
     }
-    console.warn("[gemini] Semestre estimado inválido:", contenido);
+    console.warn("[semestre] Valor inválido:", contenido);
   } catch {
-    console.warn("[gemini] Semestre estimado: respuesta no era JSON válido:", contenido);
+    console.warn("[semestre] JSON inválido:", contenido);
   }
 
   return null;

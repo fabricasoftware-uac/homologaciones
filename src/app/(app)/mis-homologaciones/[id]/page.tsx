@@ -13,8 +13,11 @@ import type { EstadoCaso } from "@/types";
 import { EscuchaCaso } from "@/components/escucha-caso";
 import {
   ResultadoHomologacion,
+  aFilaHomologacion,
   type HomologacionFila,
+  type HomologacionFilaCruda,
 } from "@/components/resultado-homologacion";
+import { computarDatosGraficas } from "@/lib/graficas/computar-datos";
 
 // Detalle de una homologación, del lado del ESTUDIANTE. Es de solo lectura: la RLS "Ver mis casos"
 // garantiza que solo pueda abrir los suyos (si pone el id de otro, no encuentra nada -> notFound).
@@ -36,6 +39,7 @@ type CasoDetalle = {
   estado: EstadoCaso;
   semestre_sugerido: number | null;
   nota_admin: string | null;
+  pensum_destino_id: string;
   pensum: { carrera: string; version: string } | null;
 };
 
@@ -44,7 +48,7 @@ export default async function PaginaDetalleHomologacion({ params }: { params: { 
 
   const { data: casoData } = await supabase
     .from("caso")
-    .select("id, institucion_origen_nombre, estado, semestre_sugerido, nota_admin, pensum:pensum_destino_id (carrera, version)")
+    .select("id, institucion_origen_nombre, estado, semestre_sugerido, nota_admin, pensum_destino_id, pensum:pensum_destino_id (carrera, version)")
     .eq("id", params.id)
     .single();
 
@@ -64,12 +68,12 @@ export default async function PaginaDetalleHomologacion({ params }: { params: { 
     let consulta = supabase
       .from("vinculo")
       .select(
-        "id, materia_origen:materia_origen_id (nombre, creditos), asignatura:asignatura_id (nombre, semestre, creditos)",
+        "id, materia_origen:materia_origen_id (nombre, creditos, tipo, metadatos), asignatura:asignatura_id (nombre, semestre, creditos)",
       )
       .eq("caso_id", params.id);
     consulta = aprobado ? consulta.eq("estado", "aprobado") : consulta.neq("estado", "rechazado");
     const { data } = await consulta;
-    homologadas = (data ?? []) as unknown as HomologacionFila[];
+    homologadas = ((data ?? []) as unknown as HomologacionFilaCruda[]).map(aFilaHomologacion);
   }
 
   // Ordenamos por semestre de la asignatura destino (y luego por nombre) para que el resumen se lea
@@ -80,6 +84,20 @@ export default async function PaginaDetalleHomologacion({ params }: { params: { 
     if (sa !== sb) return sa - sb;
     return (a.asignatura?.nombre ?? "").localeCompare(b.asignatura?.nombre ?? "", "es");
   });
+
+  let datosGraficas = null;
+  if (caso.pensum_destino_id) {
+    const { data: asignaturas } = await supabase
+      .from("asignatura")
+      .select("creditos, semestre")
+      .eq("pensum_id", caso.pensum_destino_id);
+    if (asignaturas && asignaturas.length > 0) {
+      datosGraficas = computarDatosGraficas(
+        asignaturas as { creditos: number; semestre: number }[],
+        homologadas,
+      );
+    }
+  }
 
   return (
     <div className="bg-slate-50 dark:bg-slate-950">
@@ -110,6 +128,7 @@ export default async function PaginaDetalleHomologacion({ params }: { params: { 
           notaAdmin={caso.nota_admin}
           homologadas={homologadas}
           actaHref={aprobado ? `/mis-homologaciones/${caso.id}/acta` : null}
+          datosGraficas={datosGraficas}
         />
       </main>
     </div>

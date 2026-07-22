@@ -1,36 +1,42 @@
-import {
-  IconBook as BookOpen,
-  IconFileCheck as FileCheck2,
-  IconChevronDown as ChevronDown,
-} from "@tabler/icons-react";
+import { IconBook as BookOpen, IconFileCheck as FileCheck2 } from "@tabler/icons-react";
 
 import { crearClienteServidor } from "@/lib/supabase/servidor";
 import { EncabezadoPagina } from "@/components/encabezado";
 import { GestorPlanPdf } from "./gestor-plan";
+import { NuevaCarrera, AccionesCarrera } from "./gestor-carreras";
+import { PensumEditable, type AsignaturaEditable } from "./pensum-editable";
 
 // Planes académicos (admin): tarjetas con las carreras de la Autónoma del Cauca, su pensum
 // (asignaturas por semestre) y la gestión del PDF del plan (subir / ver / reemplazar / eliminar).
 
 // Subir el pensum en PDF dispara la extracción con IA (y OCR por visión si está escaneado), que puede
-// esperar varios segundos ante rate-limits de Groq. Sin esto, Vercel corta la función a los ~10s.
+// esperar varios segundos ante rate-limits de la IA. Sin esto, Vercel corta la función a los ~10s.
 export const maxDuration = 60;
 
-type AsignaturaRef = { nombre: string; creditos: number; semestre: number };
 type PensumCard = {
   id: string;
   carrera: string;
   archivo_pdf: string | null;
-  asignatura: AsignaturaRef[];
+  asignatura: AsignaturaEditable[];
 };
 
 export default async function PaginaCarreras() {
   const supabase = crearClienteServidor();
-  const { data } = await supabase
-    .from("pensum")
-    .select("id, carrera, archivo_pdf, asignatura (nombre, creditos, semestre)")
-    .order("carrera");
+  const [{ data }, { data: casosData }] = await Promise.all([
+    supabase
+      .from("pensum")
+      .select("id, carrera, archivo_pdf, asignatura (id, nombre, codigo, creditos, semestre)")
+      .order("carrera"),
+    // Cuántos casos apuntan a cada carrera: decide si se puede eliminar (y el aviso del diálogo).
+    supabase.from("caso").select("pensum_destino_id"),
+  ]);
 
   const pensums = (data ?? []) as unknown as PensumCard[];
+  const casosPorPensum = new Map<string, number>();
+  for (const c of (casosData ?? []) as { pensum_destino_id: string | null }[]) {
+    if (!c.pensum_destino_id) continue;
+    casosPorPensum.set(c.pensum_destino_id, (casosPorPensum.get(c.pensum_destino_id) ?? 0) + 1);
+  }
 
   return (
     <div className="bg-slate-50 dark:bg-slate-950">
@@ -41,13 +47,19 @@ export default async function PaginaCarreras() {
       />
 
       <main className="p-4 sm:p-8">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 @3xl:grid-cols-2 gap-5">
+        <div className="max-w-5xl mx-auto space-y-5">
+          <div className="flex justify-end">
+            <NuevaCarrera />
+          </div>
+          {pensums.length === 0 && (
+            <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-10">
+              No hay carreras todavía. Crea la primera con “Nueva carrera”.
+            </p>
+          )}
+          <div className="grid grid-cols-1 @3xl:grid-cols-2 gap-5">
           {pensums.map((pensum, i) => {
             const asignaturas = pensum.asignatura ?? [];
             const creditos = asignaturas.reduce((suma, a) => suma + a.creditos, 0);
-            const semestres = Array.from(new Set(asignaturas.map((a) => a.semestre))).sort(
-              (a, b) => a - b,
-            );
             const url = pensum.archivo_pdf
               ? supabase.storage.from("planes").getPublicUrl(pensum.archivo_pdf).data.publicUrl
               : null;
@@ -75,38 +87,15 @@ export default async function PaginaCarreras() {
                       <FileCheck2 className="w-3.5 h-3.5" /> PDF
                     </span>
                   )}
+                  <AccionesCarrera
+                    pensumId={pensum.id}
+                    carrera={pensum.carrera}
+                    asignaturas={asignaturas.length}
+                    casos={casosPorPensum.get(pensum.id) ?? 0}
+                  />
                 </div>
 
-                {asignaturas.length > 0 && (
-                  <details className="group rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-                    <summary className="flex items-center justify-between gap-2 px-4 py-2.5 cursor-pointer list-none bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-600 dark:text-slate-300">
-                      Ver pensum
-                      <ChevronDown className="w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="p-4 space-y-4 max-h-72 overflow-auto">
-                      {semestres.map((sem) => (
-                        <div key={sem}>
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
-                            Semestre {sem}
-                          </h3>
-                          <ul className="space-y-1">
-                            {asignaturas
-                              .filter((a) => a.semestre === sem)
-                              .map((a, i) => (
-                                <li
-                                  key={`${sem}-${i}`}
-                                  className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-200 py-0.5"
-                                >
-                                  <span>{a.nombre}</span>
-                                  <span className="text-xs text-slate-400 dark:text-slate-500">{a.creditos} cr</span>
-                                </li>
-                              ))}
-                          </ul>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
+                <PensumEditable pensumId={pensum.id} asignaturas={asignaturas} />
 
                 <div className="pt-3 border-t border-slate-100 dark:border-slate-800 mt-auto">
                   <GestorPlanPdf pensumId={pensum.id} ruta={pensum.archivo_pdf} url={url} />
@@ -114,6 +103,7 @@ export default async function PaginaCarreras() {
               </div>
             );
           })}
+          </div>
         </div>
       </main>
     </div>
