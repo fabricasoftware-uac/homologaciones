@@ -225,44 +225,58 @@ export function Campana() {
 
       <SheetContent
         side="left"
-        className="w-80 max-w-[88vw] p-0 gap-0 flex flex-col bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
+        className="w-[26rem] max-w-[92vw] p-0 gap-0 flex flex-col bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
       >
-        {/* Encabezado con las acciones de la bandeja. */}
-        <div className="px-5 pt-5 pb-3 flex items-center gap-2 shrink-0">
-          <SheetTitle className="text-lg font-bold text-slate-900 dark:text-slate-100">
-            Notificaciones
-          </SheetTitle>
-          {noLeidas > 0 && (
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400">
-              {noLeidas} nueva{noLeidas === 1 ? "" : "s"}
-            </span>
-          )}
-          <span className="flex-1" />
-          {noLeidas > 0 && (
-            <button
-              type="button"
-              onClick={marcarTodas}
-              title="Marcar todas como leídas"
-              className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-sky-600 dark:hover:text-sky-300 hover:bg-sky-100/60 dark:hover:bg-sky-500/10 transition-colors"
-            >
-              <Checks className="w-[18px] h-[18px]" />
-            </button>
-          )}
+        {/* Encabezado en DOS FILAS.
+            Antes iba todo en una sola línea de 320px: título + contador + dos botones de icono. Ya
+            iba justo, pero lo que lo rompía era el botón de vaciar, que al pedir confirmación CRECÍA
+            para meter el texto "¿Vaciar?" y empujaba al resto — el título se comprimía y la fila
+            quedaba descuadrada justo en el momento más delicado (confirmar un borrado).
+            Separando título y acciones, cada cosa tiene su sitio y el botón puede cambiar de tamaño
+            sin mover nada más. El panel además pasa de 20rem a 26rem: las tarjetas llevan icono,
+            título, cuerpo de dos líneas y pie, y en 320px todo eso vivía apretado. */}
+        <div className="px-5 pt-5 pb-3 shrink-0 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-baseline gap-2.5">
+            <SheetTitle className="text-xl font-bold text-slate-900 dark:text-slate-100">
+              Notificaciones
+            </SheetTitle>
+            {noLeidas > 0 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400">
+                {noLeidas} sin leer
+              </span>
+            )}
+          </div>
+
+          {/* Fila de acciones: botones con etiqueta, no iconos sueltos. Un icono de papelera a secas
+              no dice si borra una o todas; con texto no hay que adivinar. */}
           {notifs.length > 0 && (
-            <button
-              type="button"
-              onClick={vaciar}
-              title={confirmarVaciar ? "Confirmar: borrar todas" : "Vaciar la bandeja"}
-              className={clsx(
-                "flex items-center gap-1 rounded-lg transition-all",
-                confirmarVaciar
-                  ? "px-2.5 py-1.5 text-[11px] font-bold bg-red-500 text-white hover:bg-red-600"
-                  : "p-1.5 text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-100/60 dark:hover:bg-red-500/10",
+            <div className="mt-3 flex items-center gap-2">
+              {noLeidas > 0 && (
+                <button
+                  type="button"
+                  onClick={marcarTodas}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-slate-600 dark:text-slate-300 hover:text-sky-700 dark:hover:text-sky-300 hover:bg-sky-100/70 dark:hover:bg-sky-500/10 transition-colors"
+                >
+                  <Checks className="w-4 h-4 shrink-0" />
+                  Marcar leídas
+                </button>
               )}
-            >
-              <Trash className="w-[18px] h-[18px]" />
-              {confirmarVaciar && "¿Vaciar?"}
-            </button>
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={vaciar}
+                aria-label={confirmarVaciar ? "Confirmar: borrar todas las notificaciones" : "Vaciar la bandeja"}
+                className={clsx(
+                  "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold transition-colors",
+                  confirmarVaciar
+                    ? "bg-red-500 text-white hover:bg-red-600"
+                    : "text-slate-600 dark:text-slate-300 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-100/70 dark:hover:bg-red-500/10",
+                )}
+              >
+                <Trash className="w-4 h-4 shrink-0" />
+                {confirmarVaciar ? "Confirmar" : "Vaciar"}
+              </button>
+            </div>
           )}
         </div>
 
@@ -273,10 +287,8 @@ export function Campana() {
           ].map(
             ({ clave, titulo, lista }) =>
               lista.length > 0 && (
-                <div key={clave} className="mb-4">
-                  <p className="px-2 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                    {titulo}
-                  </p>
+                <div key={clave} className="mb-5">
+                  <p className="etiqueta-registro px-2 pb-2">{titulo}</p>
                   <div className="space-y-2">
                     <AnimatePresence initial={false}>
                       {lista.map((n) => {
@@ -358,7 +370,10 @@ export function Campana() {
                               }}
                               title="Borrar notificación"
                               aria-label={`Borrar: ${n.titulo}`}
-                              className="absolute top-2 right-2 p-1 rounded-md text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
+                              /* Visible siempre en pantallas táctiles (donde no existe el hover) y al
+                                 pasar el mouse o enfocar con teclado en escritorio. Antes dependía
+                                 solo de group-hover: en móvil no había forma de borrar una sola. */
+                              className="absolute top-2 right-2 p-1.5 rounded-md text-slate-400 dark:text-slate-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>

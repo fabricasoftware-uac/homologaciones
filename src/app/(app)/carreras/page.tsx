@@ -10,7 +10,7 @@ import { PensumEditable, type AsignaturaEditable } from "./pensum-editable";
 // (asignaturas por semestre) y la gestión del PDF del plan (subir / ver / reemplazar / eliminar).
 
 // Subir el pensum en PDF dispara la extracción con IA (y OCR por visión si está escaneado), que puede
-// esperar varios segundos ante rate-limits de Groq. Sin esto, Vercel corta la función a los ~10s.
+// esperar varios segundos ante rate-limits de la IA. Sin esto, Vercel corta la función a los ~10s.
 export const maxDuration = 60;
 
 type PensumCard = {

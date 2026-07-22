@@ -18,14 +18,19 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
 
   // Sin sesión = invitado que todavía no envió nada. No lo expulsamos: le mostramos su flujo con un
   // perfil neutro. Si hay sesión, leemos su perfil real (el del invitado anónimo dice "Invitado").
-  let perfil: Perfil = { nombre: "Invitado", rol: "estudiante" };
+  //
+  // is_anonymous viene de auth.users, no de la tabla perfil: distingue al INVITADO (sesión
+  // desechable del flujo público) de una CUENTA REGISTRADA. Sin sesión tratamos el perfil como
+  // anónimo; una cuenta real siempre debe poder cerrar sesión, sea cual sea su rol.
+  let perfil: Perfil = { nombre: "Invitado", rol: "estudiante", esAnonimo: true };
   if (user) {
     const { data } = await supabase
       .from("perfil")
       .select("nombre, rol")
       .eq("id", user.id)
       .single();
-    perfil = (data as Perfil | null) ?? perfil;
+    const fila = data as Omit<Perfil, "esAnonimo"> | null;
+    perfil = { ...(fila ?? perfil), esAnonimo: user.is_anonymous ?? false };
   }
 
   const marca = await obtenerConfiguracion();

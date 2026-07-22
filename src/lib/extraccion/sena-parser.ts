@@ -28,6 +28,47 @@ import type { MateriaExtraida, Extractor } from "./tipos";
 const MARCADOR =
   /([\d,]+)\s+([AD])\s+REGISTRO\s+DE\s+COMPETENCIAS\s+EVALUADAS\s+EVAL\s+IH\s+(\d+)\s+RESULTADOS\s+DE\s+APRENDIZAJE/g;
 
+// ── Saneo del texto crudo (constancias reales, jul-2026) ──
+//
+// Algunas constancias traen los RAs con TRACKING POR CARÁCTER: el generador de PDF posiciona cada
+// letra por separado y la capa de texto sale como "0 1 I D E N T I F I C A R M O D E L O S". Los
+// límites entre palabras se pierden de verdad (no hay espacio doble que los distinga), así que no
+// se pueden reconstruir; el extractor por coordenadas tampoco los recupera. Lo que SÍ importa —y sí
+// se puede arreglar— es la NUMERACIÓN: si "01" llega como "0 1", el separador de RAs no dispara y
+// dos o más resultados de aprendizaje se fusionan en uno solo. Reparamos únicamente eso.
+function repararNumeracionEspaciada(texto: string): string {
+  return texto.replace(/(?:^|\s)(\d)\s(\d)(?=\s)/g, (coincidencia, d1, d2) =>
+    coincidencia.replace(`${d1} ${d2}`, `${d1}${d2}`),
+  );
+}
+
+// El nombre de un centro de formación puede venir PEGADO al nombre de la competencia con un guion
+// ("Enrique Low Murtra-Interactuar en el contexto productivo..."). Es texto institucional, no parte
+// de la competencia: ensucia el embedding y la evidencia que ve el LLM. Se quita solo cuando el
+// prefijo son 2-4 palabras capitalizadas seguidas de un guion SIN espacios (la firma del patrón).
+function quitarPrefijoInstitucional(nombre: string): string {
+  return nombre.replace(
+    /^[A-ZÁÉÍÓÚÑ][\p{L}.]*(?:\s+[A-ZÁÉÍÓÚÑ][\p{L}.]*){1,3}-(?=\p{L})/u,
+    "",
+  );
+}
+
+// Separa el bloque de RAs en resultados individuales. La numeración viene como "01 ", "02 " y a
+// veces "01- " (con guion). Además descarta los encabezados de página que se cuelan entre páginas
+// ("RESULTADOS DE APRENDIZAJE" repetido al reanudar la lista), que antes entraban como si fueran
+// un RA más.
+function separarResultados(segmento: string): string[] {
+  return repararNumeracionEspaciada(segmento)
+    .split(/\s+(?=\d{2}[\s-])/)
+    .map((p) =>
+      p
+        .replace(/^\d{2}[-\s]+/, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter((r) => r.length > 10 && !/^RESULTADOS\s+DE\s+APRENDIZAJE\.?$/i.test(r));
+}
+
 const tieneMinuscula = (w: string) => /[a-záéíóúñü]/.test(w);
 
 type Cola = { nombre: string; inicioNombre: number };
@@ -130,7 +171,7 @@ export class SenaParser implements Extractor {
     let m: RegExpExecArray | null;
 
     while ((m = regex.exec(txt)) !== null) {
-      let nombre = m[1].replace(/\s+/g, " ").trim();
+      let nombre = quitarPrefijoInstitucional(m[1].replace(/\s+/g, " ").trim());
       const notaRaw = m[2].replace(",", ".");
       const ih = parseInt(m[3], 10);
       const raTexto = m[4];
@@ -140,11 +181,7 @@ export class SenaParser implements Extractor {
       if (/registro\s+electr[oó]nico|p[aá]gina\s+web|http/i.test(nombre)) continue;
 
       // Extraer RAs: vienen numerados pero en cualquier orden (01, 02, 03 o 03, 02, 01...)
-      const ras = raTexto
-        .replace(/\s+/g, " ")
-        .split(/\s+(?=\d{2}\s)/)
-        .map((p) => p.replace(/^\d{2}\s+/, "").trim())
-        .filter((r) => r.length > 10);
+      const ras = separarResultados(raTexto);
 
       const raFormateado = ras.length > 0
         ? "\n\nResultados de aprendizaje:\n" + ras.map((r) => `- ${r}`).join("\n")
@@ -203,7 +240,8 @@ export class SenaParser implements Extractor {
     for (let k = 0; k < marcas.length; k++) {
       const desde = k === 0 ? 0 : marcas[k - 1].fin;
       const seg = txt.slice(desde, marcas[k].inicio).trim();
-      nombres.push(k === 0 ? nombrePrimero(seg) : nombreDesdeCola(seg).nombre);
+      const crudo = k === 0 ? nombrePrimero(seg) : nombreDesdeCola(seg).nombre;
+      nombres.push(quitarPrefijoInstitucional(crudo));
     }
 
     // 4. RAs + armado de unidades.
@@ -217,10 +255,7 @@ export class SenaParser implements Extractor {
         seg = seg.slice(0, inicioNombre).trim();
       }
 
-      const ras = seg
-        .split(/\s+(?=\d{2}\s)/)
-        .map((p) => p.replace(/^\d{2}\s+/, "").replace(/\s+/g, " ").trim())
-        .filter((r) => r.length > 10);
+      const ras = separarResultados(seg);
 
       const nombre = nombres[k] || `Competencia ${k + 1}`;
       const raFormateado =

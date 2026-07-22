@@ -10,6 +10,7 @@
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
     "db:migrate": "supabase migration up",
+    "db:push": "supabase db push",
     "db:status": "supabase status"
   },
   "dependencies": {
@@ -46,7 +47,6 @@
     "@supabase/supabase-js": "^2.108.1",
     "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/postcss": "^4.3.0",
-    "@xenova/transformers": "^2.17.2",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",

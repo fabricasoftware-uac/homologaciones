@@ -22,7 +22,7 @@ import {
 } from "./estudio";
 import { ResumenCaso } from "./resumen";
 
-// El botón "Reprocesar" corre el pipeline de IA completo (con esperas ante rate-limits de Groq y OCR
+// El botón "Reprocesar" corre el pipeline de IA completo (con esperas ante rate-limits de la IA y OCR
 // por visión si el certificado está escaneado). Sin esto, Vercel corta la función a los ~10s.
 export const maxDuration = 60;
 

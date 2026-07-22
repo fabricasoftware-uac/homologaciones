@@ -87,9 +87,9 @@ export function Sidebar({
 
   return (
     <aside className="w-64 h-full bg-slate-900 text-slate-300 border-r border-slate-800 flex flex-col">
-      <div className="p-4 flex items-center gap-3">
+      <div className="p-4 flex items-center gap-3 border-b border-white/[0.06]">
         <Logotipo marca={marca} size="md" fondo="oscuro" />
-        <span className="flex-1 min-w-0 text-base font-semibold text-white tracking-tight truncate">
+        <span className="flex-1 min-w-0 text-[17px] font-bold text-white tracking-[-0.01em] truncate">
           {marca.nombre}
         </span>
         {(perfil.rol === "admin" || perfil.rol === "asesor" || perfil.rol === "verificador") && (
@@ -108,7 +108,7 @@ export function Sidebar({
         )}
       </div>
 
-      <nav className="flex-1 px-3 py-3 space-y-1">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           // "/" (Inicio) requiere match exacto; el resto, prefijo (para subrutas como /casos/123).
           const activo = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
@@ -165,9 +165,12 @@ export function Sidebar({
           </div>
           {/* Tema y cerrar sesión: mismas cajas (w-8 h-8 centradas) para que queden alineados. */}
           <BotonTema className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/5 shrink-0" />
-          {/* Todo el STAFF (admin, asesor, verificador) inicia sesión y necesita poder salir; al
-              estudiante/invitado un "cerrar sesión" lo confundiría. */}
-          {(perfil.rol === "admin" || perfil.rol === "asesor" || perfil.rol === "verificador") && (
+          {/* Criterio: ¿esta persona INICIÓ SESIÓN con credenciales? Entonces tiene que poder salir.
+              Antes se listaban los roles de staff, y un estudiante REGISTRADO (cuenta real, no
+              invitado) quedaba encerrado: sin botón, sin forma de cambiar de usuario, sin más salida
+              que borrar las cookies a mano. Solo el invitado ANÓNIMO se queda sin el botón, porque su
+              sesión es desechable y un "cerrar sesión" ahí sí confunde. */}
+          {!perfil.esAnonimo && (
             <form action={cerrarSesion} className="flex shrink-0">
               <button
                 type="submit"

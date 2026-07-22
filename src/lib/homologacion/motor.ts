@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { emparejarMaterias } from "@/lib/groq/homologar";
+import { emparejarMaterias } from "@/lib/ia/homologar";
+import { buscarPatrones } from "./patrones";
+import { mapaConcurrente } from "@/lib/concurrencia";
 import type { UnidadAcademicaNormalizada } from "@/lib/extraccion";
 
 // ── FASE 7 · Motor de decisión en cascada ──
@@ -43,6 +45,16 @@ type DecisionUnidad = { asignatura_id: string; similitud: number; razon: string 
 const TOP_N_CANDIDATOS = 10;
 const SIMILITUD_REGLA = 98;
 const LOTE_LLM = 4; // unidades por llamada al LLM (microlote)
+
+// Topes de paralelismo. No son "cuanto más, mejor":
+//   - LLM: 3 y no 4 por una razón medida. Con 5 microlotes (una constancia SENA típica) ambos
+//     valores dan DOS tandas —o sea, el mismo tiempo de pared— pero con 4 en vuelo el proveedor
+//     gratuito devolvía 429 "temporarily rate-limited upstream" y los lotes terminaban degradados al
+//     modelo de respaldo. Con 3 el tiempo es igual y las respuestas salen del modelo bueno.
+//   - Vectorial: son consultas a Postgres, baratas, pero el pool de Supabase es finito y este
+//     pipeline no es el único que lo usa.
+const CONCURRENCIA_LLM = 3;
+const CONCURRENCIA_VECTORIAL = 6;
 
 // Versión COMPACTA de la descripción para el payload del LLM: el nombre completo + hasta 6 RAs
 // recortados. Los RAs completos (a veces 900+ chars por competencia) viven en la BD; para JUZGAR
@@ -90,7 +102,7 @@ export async function decidirVinculos(args: {
   const hashes = unidades.map((u) => hashUnidad(u.textoEmbedding));
   const porId = new Map(asignaturas.map((a) => [a.id, a] as const));
   const decisiones = new Map<number, DecisionUnidad>();
-  const stats = { cache: 0, regla: 0, llm: 0, legacy: 0 };
+  const stats = { cache: 0, patron: 0, regla: 0, llm: 0, legacy: 0 };
 
   // ── Nivel 0 · Caché (una sola consulta batch) ──
   if (ignorarCache) {
@@ -121,6 +133,36 @@ export async function decidirVinculos(args: {
     }
   }
 
+  // ── Nivel 0.5 · PATRONES APRENDIDOS ──
+  //
+  // Lo que el caché exacto (Nivel 0) no puede cubrir: dos estudiantes del mismo programa traen la
+  // misma competencia con los RAs redactados distinto → hashes distintos → el Nivel 0 falla. Este
+  // nivel busca por NOMBRE normalizado y aplica los pares que los asesores ya confirmaron varias
+  // veces. Es el "aprende de lo que hace el admin" de verdad: cuesta 0 tokens y mejora solo con el
+  // uso. Va ANTES de la regla de nombre porque una decisión humana repetida vale más que una
+  // coincidencia textual.
+  const nombresNorm = unidades.map((u) => normalizarNombre(u.nombre));
+  if (!ignorarCache) {
+    const patrones = await buscarPatrones(supabase, pensumId, nombresNorm);
+    for (let i = 0; i < unidades.length; i++) {
+      if (decisiones.has(i)) continue;
+      const aprendidos = patrones.get(nombresNorm[i]);
+      if (!aprendidos || aprendidos.length === 0) continue;
+      // Puede que el pensum haya cambiado desde que se aprendió: se filtran las que ya no existen.
+      const vigentes = aprendidos.filter((p) => porId.has(p.asignaturaId));
+      if (vigentes.length === 0) continue;
+      decisiones.set(
+        i,
+        vigentes.map((p) => ({
+          asignatura_id: p.asignaturaId,
+          similitud: p.similitud,
+          razon: p.razon,
+        })),
+      );
+      stats.patron++;
+    }
+  }
+
   // ── Nivel 1 · Regla de igualdad de nombre ──
   const porNombre = new Map<string, AsignaturaDestino>();
   for (const a of asignaturas) {
@@ -148,16 +190,17 @@ export async function decidirVinculos(args: {
 
   // ── Nivel 2 · Vectores: candidatas Top-N por unidad pendiente (con su similitud coseno, que
   // además sirve de RED si el LLM no está disponible) ──
+  // Las consultas son INDEPENDIENTES entre sí (cada una resuelve una unidad), así que van en
+  // paralelo con tope: en serie eran tantos viajes a Postgres como unidades —19 en una constancia
+  // SENA típica— sumando sus latencias una tras otra sin ninguna necesidad.
   type Candidata = { asignatura: AsignaturaDestino; similitud: number };
-  const pendientes: { idx: number; candidatas: Candidata[] }[] = [];
-  const sinEmbedding: number[] = [];
-  for (let i = 0; i < unidades.length; i++) {
-    if (decisiones.has(i)) continue;
+  const porResolver = unidades
+    .map((_, i) => i)
+    .filter((i) => !decisiones.has(i));
+
+  const busquedas = await mapaConcurrente(porResolver, CONCURRENCIA_VECTORIAL, async (i) => {
     const emb = embsUnidades[i];
-    if (!emb) {
-      sinEmbedding.push(i);
-      continue;
-    }
+    if (!emb) return { idx: i, candidatas: null };
     try {
       const { data } = await supabase.rpc("buscar_asignaturas_similares", {
         p_pensum_id: pensumId,
@@ -172,15 +215,20 @@ export async function decidirVinculos(args: {
             : null;
         })
         .filter((c): c is Candidata => c !== null);
-      if (candidatas.length === 0) {
-        sinEmbedding.push(i); // el pensum no tiene embeddings todavía: va por el camino legacy
-        continue;
-      }
-      pendientes.push({ idx: i, candidatas });
+      return { idx: i, candidatas: candidatas.length > 0 ? candidatas : null };
     } catch (e) {
       console.warn(`[motor] Falló la búsqueda vectorial para la unidad ${i}; va por legacy:`, e);
-      sinEmbedding.push(i);
+      return { idx: i, candidatas: null };
     }
+  });
+
+  // Se reparten conservando el orden de entrada (mapaConcurrente devuelve alineado), para que la
+  // propuesta sea determinista aunque las consultas terminen desordenadas.
+  const pendientes: { idx: number; candidatas: Candidata[] }[] = [];
+  const sinEmbedding: number[] = [];
+  for (const { idx, candidatas } of busquedas) {
+    if (candidatas) pendientes.push({ idx, candidatas });
+    else sinEmbedding.push(idx); // sin embedding o sin candidatas: va por el camino legacy
   }
 
   // ── Nivel 3 · LLM en MICROLOTES ──
@@ -196,9 +244,17 @@ export async function decidirVinculos(args: {
   // nada" permanente y el caso quedaba sin ninguna relación.
   const fallidasLLM: { idx: number; candidatas: Candidata[] }[] = [];
 
+  // Los microlotes son INDEPENDIENTES: cada uno juzga sus propias unidades contra sus propias
+  // candidatas y no mira el resultado de los demás (los conflictos se resuelven al final, en la
+  // resolución global del caso). Correrlos en serie era la causa dominante de la espera: con 13 s
+  // por llamada medidos en el tier gratuito, una constancia SENA de 19 competencias son 5 lotes =
+  // ~66 s. En paralelo con tope bajan a ~15 s.
+  const grupos: { idx: number; candidatas: Candidata[] }[][] = [];
   for (let p = 0; p < pendientes.length; p += LOTE_LLM) {
-    const lote = pendientes.slice(p, p + LOTE_LLM);
+    grupos.push(pendientes.slice(p, p + LOTE_LLM));
+  }
 
+  const resultadosLotes = await mapaConcurrente(grupos, CONCURRENCIA_LLM, async (lote) => {
     const union: AsignaturaDestino[] = [];
     const vistos = new Set<string>();
     for (const { candidatas } of lote) {
@@ -220,29 +276,35 @@ export async function decidirVinculos(args: {
         true, // múltiples por origen
         esSena, // señal SENA explícita al prompt del LLM
       );
-      if (vinculos === null) {
-        // La IA no respondió: NO es un "no homologa"; estas unidades van a la red vectorial.
-        fallidasLLM.push(...lote);
-        continue;
-      }
-
-      const porUnidad = new Map<number, DecisionUnidad>();
-      for (const v of vinculos) {
-        const idxGlobal = lote[v.materia]?.idx;
-        if (idxGlobal === undefined || !union[v.asignatura]) continue;
-        const lista = porUnidad.get(idxGlobal) ?? [];
-        lista.push({ asignatura_id: union[v.asignatura].id, similitud: v.similitud, razon: v.razon });
-        porUnidad.set(idxGlobal, lista);
-      }
-      for (const { idx } of lote) {
-        const decision = porUnidad.get(idx) ?? [];
-        decisiones.set(idx, decision);
-        stats.llm++;
-        void guardarDecision(supabase, hashes[idx], pensumId, decision, "ia", ignorarCache);
-      }
+      return { lote, union, vinculos };
     } catch (e) {
       console.warn("[motor] Falló un microlote LLM; esas unidades van a la red vectorial:", e);
+      return { lote, union, vinculos: null };
+    }
+  });
+
+  // La ESCRITURA de las decisiones se hace después, en el orden original de los lotes: así el
+  // resultado no depende de cuál llamada terminó primero.
+  for (const { lote, union, vinculos } of resultadosLotes) {
+    if (vinculos === null) {
+      // La IA no respondió: NO es un "no homologa"; estas unidades van a la red vectorial.
       fallidasLLM.push(...lote);
+      continue;
+    }
+
+    const porUnidad = new Map<number, DecisionUnidad>();
+    for (const v of vinculos) {
+      const idxGlobal = lote[v.materia]?.idx;
+      if (idxGlobal === undefined || !union[v.asignatura]) continue;
+      const lista = porUnidad.get(idxGlobal) ?? [];
+      lista.push({ asignatura_id: union[v.asignatura].id, similitud: v.similitud, razon: v.razon });
+      porUnidad.set(idxGlobal, lista);
+    }
+    for (const { idx } of lote) {
+      const decision = porUnidad.get(idx) ?? [];
+      decisiones.set(idx, decision);
+      stats.llm++;
+      void guardarDecision(supabase, hashes[idx], pensumId, decision, "ia", ignorarCache);
     }
   }
 
@@ -307,7 +369,7 @@ export async function decidirVinculos(args: {
   }
 
   console.log(
-    `[motor] Decisiones: ${stats.cache} caché · ${stats.regla} regla · ${stats.llm} LLM en microlotes de ${LOTE_LLM} · ${stats.legacy} legacy · ${fallidasLLM.length} sin IA (de ${unidades.length} unidades).`,
+    `[motor] Decisiones: ${stats.cache} caché · ${stats.patron} patrón aprendido · ${stats.regla} regla · ${stats.llm} LLM en microlotes de ${LOTE_LLM} · ${stats.legacy} legacy · ${fallidasLLM.length} sin IA (de ${unidades.length} unidades).`,
   );
 
   // ── Resolución global del caso: cada asignatura destino se homologa a lo sumo UNA vez; cada

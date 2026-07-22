@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
-import { llamarGroq } from "@/lib/groq/cliente";
+
 import { llamarOpenRouter } from "@/lib/openrouter/cliente";
 import { llamarGemini } from "@/lib/gemini/cliente";
-import { generarEmbeddings } from "@/lib/embedding";
+import { generarEmbeddings } from "@/lib/gemini/cliente";
+import { mapaConcurrente } from "@/lib/concurrencia";
 import {
   extraerYNormalizar,
   detectarInstitucion,
@@ -220,13 +221,21 @@ async function asegurarEmbeddingsAsignaturas(
   if (faltan.length === 0) return;
 
   const embs = await generarEmbeddings(faltan.map((a) => a.nombre));
-  let ok = 0;
-  for (let i = 0; i < faltan.length; i++) {
+
+  // Un UPDATE por asignatura, pero en paralelo con tope: en serie, un pensum de 60 asignaturas eran
+  // 60 viajes a Postgres encadenados la primera vez que se procesaba un caso de esa carrera — la
+  // espera más larga y más desconcertante de todo el flujo, porque solo ocurre una vez por pensum.
+  const escrituras = await mapaConcurrente(faltan, 6, async (asignatura, i) => {
     const e = embs[i];
-    if (!e) continue;
-    await supabase.from("asignatura").update({ embedding: JSON.stringify(e) }).eq("id", faltan[i].id);
-    ok++;
-  }
+    if (!e) return false;
+    const { error } = await supabase
+      .from("asignatura")
+      .update({ embedding: JSON.stringify(e) })
+      .eq("id", asignatura.id);
+    return !error;
+  });
+
+  const ok = escrituras.filter(Boolean).length;
   console.log(`[embeddings] Asignaturas embebidas: ${ok}/${faltan.length} (pensum ${pensumId}).`);
 }
 
@@ -371,28 +380,14 @@ async function estimarSemestreConGemini(
       "\n\nSENA: Las competencias del SENA se miden en HORAS, no créditos. Una competencia de 1008h cubre muchísimo más que una materia de 3cr. El porcentaje de créditos SUBESTIMA el nivel real. Sé mas generoso con los semestres al estimado proporcional.";
   }
 
+  const mensajes = [
+    { role: "system" as const, content: sistema },
+    { role: "user" as const, content: texto },
+  ];
+
   const contenido =
-    (await llamarOpenRouter(
-      [
-        { role: "system", content: sistema },
-        { role: "user", content: texto },
-      ],
-      { json: true, temperatura: 0 },
-    )) ??
-    (await llamarGroq(
-      [
-        { role: "system", content: sistema },
-        { role: "user", content: texto },
-      ],
-      { json: true, temperatura: 0 },
-    )) ??
-    (await llamarGemini(
-      [
-        { role: "system", content: sistema },
-        { role: "user", content: texto },
-      ],
-      { json: true, temperatura: 0, modelos: ["gemini-2.5-flash-lite"] },
-    ));
+    (await llamarOpenRouter(mensajes, { json: true, temperatura: 0, maxTokens: 500 })) ??
+    (await llamarGemini(mensajes, { json: true, temperatura: 0, modelos: ["gemini-2.5-flash-lite"] }));
 
   if (!contenido) return null;
 

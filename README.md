@@ -7,7 +7,7 @@
   <a href="#"><img src="https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white"></a>
   <a href="#"><img src="https://img.shields.io/badge/Supabase-Postgres%20%C2%B7%20Auth%20%C2%B7%20Storage-3ecf8e?logo=supabase&logoColor=white"></a>
   <a href="#"><img src="https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white"></a>
-  <a href="#"><img src="https://img.shields.io/badge/IA-Groq-f55036"></a>
+  <a href="#"><img src="https://img.shields.io/badge/IA-OpenRouter-6467f2"></a>
 </p>
 
 # Homologaciones
@@ -36,7 +36,7 @@ El corazón del sistema es un pipeline que corre del lado del servidor cuando se
 - **Extracción del PDF.** Se lee la capa de texto del certificado. Si el documento está escaneado (sin texto seleccionable), se renderizan las páginas a imagen y se usan modelos de visión para leerlas.
 - **Emparejamiento.** Las materias de origen se comparan contra las asignaturas del pensum destino. La IA propone los vínculos con un porcentaje de similitud y una breve justificación de cada coincidencia.
 - **Estimación de semestre.** No se delega en la IA: se calcula en código recorriendo el plan semestre a semestre y acumulando los créditos que el estudiante alcanza a homologar, hasta encontrar el primer semestre que todavía tendría que cursar.
-- **Resiliencia.** El proveedor de IA (Groq) se consume a través de una **cadena de modelos con _fallback_**: si uno se queda sin cuota o queda fuera de servicio, se pasa automáticamente al siguiente. Los vínculos siempre quedan en estado *pendiente* hasta que un humano los confirma.
+- **Resiliencia.** El proveedor de IA (OpenRouter) se consume a través de una **cadena de modelos con _fallback_**: si uno se queda sin cuota o queda fuera de servicio, se pasa automáticamente al siguiente. Los vínculos siempre quedan en estado *pendiente* hasta que un humano los confirma.
 
 La IA sugiere; el comité decide. Ningún veredicto sale sin revisión humana.
 
@@ -76,7 +76,7 @@ La IA sugiere; el comité decide. Ningún veredicto sale sin revisión humana.
 | Lenguaje | TypeScript |
 | UI | Tailwind CSS v4, componentes shadcn/ui (Radix), animaciones con Motion |
 | Backend / datos | Supabase — PostgreSQL, Auth, Storage privado, Realtime, RLS |
-| IA | Groq (LLM y modelos de visión) con cadena de modelos de respaldo |
+| IA | OpenRouter (LLM y modelos de visión, modelos gratuitos) con cadena de respaldo a Gemini |
 | PDF | `unpdf` (extracción de texto), `@napi-rs/canvas` (render de páginas escaneadas), `@react-pdf/renderer` (acta) |
 | Otros | QR de verificación, correo transaccional, gráficas con Recharts |
 
@@ -99,7 +99,7 @@ src/
 │   ├── ingresar/             # Acceso del administrador
 │   └── api/                  # Endpoints públicos (pensums, homologaciones)
 ├── lib/
-│   ├── groq/             # Cliente, extracción de materias/pensum, emparejamiento
+│   ├── ia/               # Cliente, extracción de materias/pensum, emparejamiento
 │   ├── homologacion/     # Orquestación del pipeline + correo
 │   ├── acta/             # Armado y render del acta en PDF
 │   ├── pdf/              # Extracción de texto del certificado
@@ -126,7 +126,7 @@ El esquema de base de datos está versionado en migraciones, con políticas RLS 
 - Node.js 18+ y [pnpm](https://pnpm.io/)
 - [Docker Desktop](https://www.docker.com/) (para el Supabase local)
 - [Supabase CLI](https://supabase.com/docs/guides/cli)
-- Una API key de [Groq](https://console.groq.com/)
+- Una API key de [OpenRouter](https://openrouter.ai/keys)
 
 ### Instalación
 
@@ -144,7 +144,7 @@ pnpm dev              # http://localhost:3000
 
 | Variable | Descripción |
 |----------|-------------|
-| `GROQ_API_KEY` | Clave de Groq para el análisis con IA. Solo backend. |
+| `OPENROUTER_API_KEY` | Clave de OpenRouter para el análisis con IA. Solo backend. Sin créditos comprados, los modelos `:free` comparten ~50 requests/día por cuenta. |
 | `NEXT_PUBLIC_SUPABASE_URL` | URL del proyecto Supabase. |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Clave pública de Supabase. |
 | `SUPABASE_SECRET_KEY` | Clave de servicio (acceso total). **Nunca** debe llegar al navegador. |

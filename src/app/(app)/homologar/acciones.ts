@@ -7,9 +7,9 @@ import { createHash } from "node:crypto";
 import { crearClienteServidor } from "@/lib/supabase/servidor";
 import { crearClienteServicio } from "@/lib/supabase/servicio";
 import { extraerTextoPdf } from "@/lib/pdf/extraer";
-import { validarDocumentoAcademico } from "@/lib/groq/validar";
+import { validarDocumentoAcademico } from "@/lib/ia/validar";
 import { procesarCaso } from "@/lib/homologacion/procesar";
-import { ErrorIANoDisponible } from "@/lib/groq/cliente";
+import { ErrorIANoDisponible } from "@/lib/openrouter/cliente";
 import { notificarRecepcion } from "@/lib/homologacion/correo";
 import { verificarTurnstile } from "@/lib/seguridad/turnstile";
 

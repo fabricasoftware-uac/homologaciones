@@ -1,11 +1,10 @@
-import { llamarGroq, MODELOS_LIGEROS } from "./cliente";
 import { llamarOpenRouter, MODELOS_LIGEROS as MODELOS_LIGEROS_OR } from "@/lib/openrouter/cliente";
 import { llamarGemini, MODELOS_LIGEROS as MODELOS_LIGEROS_GEMINI } from "@/lib/gemini/cliente";
 
 // Fase 5 · Emparejamiento con IA.
 //
-// Le pasamos a Groq dos listas —las materias que el estudiante cursó en origen y las asignaturas del
-// pensum destino— y le pedimos que diga qué homologa con qué y con qué porcentaje.
+// Le pasamos a la IA dos listas —las materias que el estudiante cursó en origen y las asignaturas
+// del pensum destino— y le pedimos que diga qué homologa con qué y con qué porcentaje.
 //
 // Truco clave: NO le pasamos los UUID de la base a la IA (los alucinaría). Cada materia y cada
 // asignatura van con un ÍNDICE entero; la IA responde con esos índices y nosotros los mapeamos de
@@ -95,28 +94,14 @@ export async function emparejarUnidad(
     })),
   };
 
+  const mensajes = [
+    { role: "system" as const, content: SISTEMA_UNIDAD },
+    { role: "user" as const, content: JSON.stringify(payload) },
+  ];
+
   const contenido =
-    (await llamarOpenRouter(
-      [
-        { role: "system", content: SISTEMA_UNIDAD },
-        { role: "user", content: JSON.stringify(payload) },
-      ],
-      { json: true, modelos: MODELOS_LIGEROS_OR },
-    )) ??
-    (await llamarGroq(
-      [
-        { role: "system", content: SISTEMA_UNIDAD },
-        { role: "user", content: JSON.stringify(payload) },
-      ],
-      { json: true, modelos: MODELOS_LIGEROS },
-    )) ??
-    (await llamarGemini(
-      [
-        { role: "system", content: SISTEMA_UNIDAD },
-        { role: "user", content: JSON.stringify(payload) },
-      ],
-      { json: true, modelos: MODELOS_LIGEROS_GEMINI },
-    ));
+    (await llamarOpenRouter(mensajes, { json: true, modelos: MODELOS_LIGEROS_OR, maxTokens: 2000 })) ??
+    (await llamarGemini(mensajes, { json: true, modelos: MODELOS_LIGEROS_GEMINI }));
   if (!contenido) return [];
 
   try {
@@ -138,7 +123,7 @@ export async function emparejarUnidad(
     }
     return resultado;
   } catch {
-    console.error("[groq] Emparejamiento de unidad: la respuesta no era JSON válido:", contenido);
+    console.error("[ia] Emparejamiento de unidad: la respuesta no era JSON válido:", contenido);
     return [];
   }
 }
@@ -177,91 +162,80 @@ export async function emparejarMaterias(
     })),
   };
 
-  // Emparejamiento en la cadena LIGERA (20b primero): así no compite con la extracción por el cupo
-  // del 120b. Es una tarea de comparación por índices, que el 20b resuelve bien.
-  // Intentar con JSON mode (funciona con universitarios). Si falla (SENA: json_validate_failed),
-  // reintentar sin JSON mode y extraer el JSON manualmente.
-  let contenido =
-    (await llamarOpenRouter(
-      [
-        { role: "system", content: promptSistema },
-        { role: "user", content: JSON.stringify(payload) },
-      ],
-      { json: true, modelos: MODELOS_LIGEROS_OR },
-    ));
-  if (contenido === null) {
-    contenido = (await llamarGroq(
-      [
-        { role: "system", content: promptSistema },
-        { role: "user", content: JSON.stringify(payload) },
-      ],
-      { json: true, modelos: MODELOS_LIGEROS },
-    ));
-  }
-  if (contenido === null) {
-    contenido = await llamarGroq(
-      [
-        { role: "system", content: promptSistema },
-        { role: "user", content: JSON.stringify(payload) },
-      ],
-      { json: false, modelos: MODELOS_LIGEROS },
-    );
-  }
-  if (contenido === null) {
-    contenido =
-      (await llamarGemini(
-        [
-          { role: "system", content: promptSistema },
-          { role: "user", content: JSON.stringify(payload) },
-        ],
-        { json: true, modelos: MODELOS_LIGEROS_GEMINI },
-      ));
-  }
-  if (!contenido) return null;
+  const mensajes = [
+    { role: "system" as const, content: promptSistema },
+    { role: "user" as const, content: JSON.stringify(payload) },
+  ];
 
-  try {
+  // Cadena de proveedores. OJO con el orden de fallos: antes, si OpenRouter RESPONDÍA pero con JSON
+  // roto, se devolvía null de una vez y Gemini nunca se intentaba — un formato raro dejaba el caso
+  // sin ninguna relación aunque hubiera un proveedor sano detrás. Ahora cada proveedor se intenta y
+  // se PARSEA en el mismo paso: solo pasamos al siguiente si este no dio vínculos utilizables.
+  const proveedores: { nombre: string; llamar: () => Promise<string | null> }[] = [
+    {
+      nombre: "openrouter",
+      llamar: () => llamarOpenRouter(mensajes, { json: true, modelos: MODELOS_LIGEROS_OR, maxTokens: 4000 }),
+    },
+    {
+      nombre: "gemini",
+      llamar: () => llamarGemini(mensajes, { json: true, modelos: MODELOS_LIGEROS_GEMINI }),
+    },
+  ];
+
+  for (const proveedor of proveedores) {
+    const contenido = await proveedor.llamar();
+    if (contenido === null) continue; // el proveedor no respondió: probamos el siguiente
+
     const json = extraerJson(contenido);
-    if (!json) return null;
-    const parsed = JSON.parse(json) as { vinculos?: unknown[] };
-    const crudos = Array.isArray(parsed.vinculos) ? parsed.vinculos : [];
-
-    // Normalizamos y descartamos índices fuera de rango / similitudes bajas.
-    const candidatos: VinculoSugerido[] = [];
-    for (const crudo of crudos) {
-      const v = crudo as Record<string, unknown>;
-      const materia = Number(v.materia);
-      const asignatura = Number(v.asignatura);
-      const similitud = Number(v.similitud);
-      if (!Number.isInteger(materia) || materia < 0 || materia >= origen.length) continue;
-      if (!Number.isInteger(asignatura) || asignatura < 0 || asignatura >= destino.length) continue;
-      if (!Number.isFinite(similitud) || similitud < SIMILITUD_MINIMA) continue;
-      // Razón: texto corto, acotado por las dudas (truncamos por si la IA se extiende).
-      const razonCruda = typeof v.razon === "string" ? v.razon.trim() : "";
-      candidatos.push({
-        materia,
-        asignatura,
-        similitud: Math.max(0, Math.min(100, Math.round(similitud))),
-        razon: razonCruda ? razonCruda.slice(0, 160) : null,
-      });
+    if (!json) {
+      console.warn(`[ia] Emparejamiento: ${proveedor.nombre} no devolvió JSON válido; probando el siguiente.`);
+      continue;
     }
 
-    // Asignación: cada destino se empareja con UNA sola materia de origen (la de mayor similitud).
-    // Cuando permitirMultiplesPorOrigen es true (SENA), una misma competencia de origen PUEDE
-    // homologar VARIAS asignaturas del pensum destino (1:N en el lado origen).
-    candidatos.sort((a, b) => b.similitud - a.similitud);
-    const materiasUsadas = new Set<number>();
-    const asignaturasUsadas = new Set<number>();
-    const resultado: VinculoSugerido[] = [];
-    for (const v of candidatos) {
-      if (asignaturasUsadas.has(v.asignatura)) continue;
-      if (!permitirMultiplesPorOrigen && materiasUsadas.has(v.materia)) continue;
-      materiasUsadas.add(v.materia);
-      asignaturasUsadas.add(v.asignatura);
-      resultado.push(v);
+    try {
+      const parsed = JSON.parse(json) as { vinculos?: unknown[] };
+      const crudos = Array.isArray(parsed.vinculos) ? parsed.vinculos : [];
+
+      // Normalizamos y descartamos índices fuera de rango / similitudes bajas.
+      const candidatos: VinculoSugerido[] = [];
+      for (const crudo of crudos) {
+        const v = crudo as Record<string, unknown>;
+        const materia = Number(v.materia);
+        const asignatura = Number(v.asignatura);
+        const similitud = Number(v.similitud);
+        if (!Number.isInteger(materia) || materia < 0 || materia >= origen.length) continue;
+        if (!Number.isInteger(asignatura) || asignatura < 0 || asignatura >= destino.length) continue;
+        if (!Number.isFinite(similitud) || similitud < SIMILITUD_MINIMA) continue;
+        // Razón: texto corto, acotado por las dudas (truncamos por si la IA se extiende).
+        const razonCruda = typeof v.razon === "string" ? v.razon.trim() : "";
+        candidatos.push({
+          materia,
+          asignatura,
+          similitud: Math.max(0, Math.min(100, Math.round(similitud))),
+          razon: razonCruda ? razonCruda.slice(0, 160) : null,
+        });
+      }
+
+      // Asignación: cada destino se empareja con UNA sola materia de origen (la de mayor similitud).
+      // Cuando permitirMultiplesPorOrigen es true (SENA), una misma competencia de origen PUEDE
+      // homologar VARIAS asignaturas del pensum destino (1:N en el lado origen).
+      candidatos.sort((a, b) => b.similitud - a.similitud);
+      const materiasUsadas = new Set<number>();
+      const asignaturasUsadas = new Set<number>();
+      const resultado: VinculoSugerido[] = [];
+      for (const v of candidatos) {
+        if (asignaturasUsadas.has(v.asignatura)) continue;
+        if (!permitirMultiplesPorOrigen && materiasUsadas.has(v.materia)) continue;
+        materiasUsadas.add(v.materia);
+        asignaturasUsadas.add(v.asignatura);
+        resultado.push(v);
+      }
+      return resultado;
+    } catch {
+      console.warn(`[ia] Emparejamiento: ${proveedor.nombre} devolvió JSON no parseable; probando el siguiente.`);
     }
-    return resultado;
-  } catch {
-    console.error("[groq] Emparejamiento: la respuesta no era JSON válido:", contenido);
-    return null;
   }
+
+  console.error("[ia] Emparejamiento: ningún proveedor devolvió una respuesta utilizable.");
+  return null;
 }

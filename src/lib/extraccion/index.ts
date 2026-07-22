@@ -2,7 +2,7 @@ import { SenaParser } from "./sena-parser";
 import { ParserIA } from "./ia-parser";
 import { normalizar } from "./normalizador";
 import { evaluarCalidadTexto } from "./calidad";
-import { extraerMateriasPorVision } from "@/lib/groq/extraer-materias";
+import { extraerMateriasPorVision } from "@/lib/ia/extraer-materias";
 import type {
   MateriaExtraida,
   UnidadAcademicaNormalizada,

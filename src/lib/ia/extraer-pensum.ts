@@ -1,6 +1,5 @@
 import { getDocumentProxy, renderPageAsImage } from "unpdf";
 
-import { llamarGroq, llamarGroqVision } from "./cliente";
 import { llamarOpenRouter, llamarOpenRouterVision } from "@/lib/openrouter/cliente";
 import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
 import { extraerTextoEstructurado } from "@/lib/pdf/extraer-estructurado";
@@ -47,15 +46,14 @@ const MAX_PAGINAS_VISION = 20;
 // (columnas/páginas del texto estructurado) y se hace una llamada por trozo; los resultados se
 // fusionan y deduplican. Así ningún semestre queda fuera por truncamiento.
 //
-// PRESUPUESTO: el tier gratuito de Groq limita a 8.000 tokens por request (TPM), y max_tokens de
-// SALIDA cuenta contra ese límite: 6.000 chars de entrada (~1.750 tokens) + system (~450) + 5.000
-// de salida ≈ 7.200, con margen. Además los modelos de la cadena RAZONAN y ese razonamiento (aunque
-// vaya oculto) también descuenta de la salida: con 4.000 un pensum denso de una sola página (50+
-// asignaturas) se TRUNCABA (json_validate_failed en Groq, JSON cortado en Gemini → 0 filas). Por lo
-// mismo el prompt exige JSON COMPACTO (el pretty-printed duplica los tokens de salida) y a Gemini
-// se le apaga el thinking (sinRazonar).
+// PRESUPUESTO: los modelos de OpenRouter de la cadena tienen contextos enormes (262k en gemma-4),
+// así que el límite ya no es el contexto sino la SALIDA: los modelos RAZONAN y ese razonamiento
+// descuenta de max_tokens, de modo que un pensum denso de una sola página (50+ asignaturas) se
+// TRUNCABA (JSON cortado → 0 filas). Por eso: trozos de 6.000 chars, presupuesto de salida amplio,
+// razonamiento en "low", el prompt exige JSON COMPACTO (el pretty-printed duplica los tokens de
+// salida) y a Gemini se le apaga el thinking (sinRazonar).
 const LIMITE_TROZO = 6000;
-const MAX_TOKENS_SALIDA = 5000;
+const MAX_TOKENS_SALIDA = 16000;
 
 function aEnteroPositivoONull(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === "") return null;
@@ -90,7 +88,7 @@ function parsearAsignaturas(contenido: string | null): AsignaturaExtraida[] {
       })
       .filter((a): a is AsignaturaExtraida => a !== null);
   } catch {
-    console.error("[groq] Extracción de pensum: la respuesta no era JSON válido:", contenido);
+    console.error("[ia] Extracción de pensum: la respuesta no era JSON válido:", contenido);
     return [];
   }
 }
@@ -141,15 +139,14 @@ async function extraerDeTrozo(trozo: string): Promise<AsignaturaExtraida[] | nul
     { role: "system" as const, content: SISTEMA },
     { role: "user" as const, content: trozo },
   ];
-  // Groq: espera generosa ante 429 (los requests de extracción son grandes y Groq suele pedir
-  // 4-6s; la server action tiene maxDuration 60) y razonamiento al mínimo en gpt-oss (la tarea es
-  // mecánica; con el default, el razonamiento se comía max_tokens y el JSON salía vacío/truncado).
-  // Gemini no comparte el límite de 8k tokens/request de Groq: se le da presupuesto de sobra
-  // (16k) y se le DEJA el thinking encendido — sin razonar duplicaba bloques enteros del plan
-  // (asignaturas repetidas corridas de semestre); con thinking y sin riesgo de truncado, lee bien.
+  // OpenRouter: espera generosa ante 429 (los requests de extracción son grandes; la server action
+  // tiene maxDuration 60) y razonamiento al mínimo (la tarea es mecánica; con el default, el
+  // razonamiento se come max_tokens y el JSON sale vacío/truncado).
+  // Gemini de último recurso: se le da presupuesto de sobra y se le DEJA el thinking encendido —
+  // sin razonar duplicaba bloques enteros del plan (asignaturas repetidas corridas de semestre);
+  // con thinking y sin riesgo de truncado, lee bien.
   const contenido =
-    (await llamarOpenRouter(mensajes, { json: true, maxTokens: 16000 })) ??
-    (await llamarGroq(mensajes, {
+    (await llamarOpenRouter(mensajes, {
       json: true,
       maxTokens: MAX_TOKENS_SALIDA,
       topeEsperaMs: 10000,
@@ -179,7 +176,7 @@ export async function extraerAsignaturasDePensum(bytes: Uint8Array): Promise<Asi
   for (const [i, trozo] of trozos.entries()) {
     let parciales = await extraerDeTrozo(trozo);
     if (parciales === null) {
-      // Proveedores saturados: una pausa suele bastar (el TPM de Groq se libera por minuto).
+      // Proveedores saturados: una pausa suele bastar (el rate-limit por minuto se libera solo).
       console.warn(`[pensum] trozo ${i + 1}/${trozos.length} sin respuesta de la IA; reintento en 6s...`);
       await dormir(6000);
       parciales = await extraerDeTrozo(trozo);
@@ -264,7 +261,6 @@ export async function extraerAsignaturasPorVision(bytes: Uint8Array): Promise<As
     // Round-robin de modelos por página: reparte el gasto de tokens entre los cupos de cada modelo.
     const contenido =
       (await llamarOpenRouterVision(SISTEMA_VISION, [url], i - 1)) ??
-      (await llamarGroqVision(SISTEMA_VISION, [url], i - 1)) ??
       (await llamarGeminiVision(SISTEMA_VISION, [url], i - 1));
     if (contenido === null) continue; // esta página falló: seguimos con las demás (best-effort)
     asignaturas.push(...parsearAsignaturas(contenido));

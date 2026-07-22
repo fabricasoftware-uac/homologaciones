@@ -1,4 +1,4 @@
-import { extraerMateriasDeTexto, extraerMateriasPorVision } from "@/lib/groq/extraer-materias";
+import { extraerMateriasDeTexto, extraerMateriasPorVision } from "@/lib/ia/extraer-materias";
 import { evaluarCalidadTexto } from "./calidad";
 import type { MateriaExtraida, Extractor } from "./tipos";
 

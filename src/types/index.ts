@@ -19,9 +19,16 @@ export type Rol = "estudiante" | "admin" | "asesor" | "verificador";
 
 // El usuario tal como lo muestra la app: su nombre y su rol. Vive en la tabla `perfil`,
 // enlazada 1:1 con auth.users.
+//
+// `esAnonimo` NO vive en `perfil`: sale de auth.users.is_anonymous y lo resuelve el layout. Hace
+// falta porque el rol no alcanza para saber si alguien puede cerrar sesión: un "estudiante" puede
+// ser un INVITADO anónimo (sesión desechable, sin credenciales que recuperar) o una CUENTA
+// REGISTRADA de verdad. Sin este dato, la UI trataba a ambos igual y dejaba a los registrados
+// encerrados, sin ninguna forma de salir.
 export type Perfil = {
   nombre: string;
   rol: Rol;
+  esAnonimo: boolean;
 };
 
 // --- Dominio de homologaciones (espejo de las tablas de la migración 0002) ---

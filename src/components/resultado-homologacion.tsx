@@ -169,8 +169,12 @@ export function ResultadoHomologacion({
               >
                 {semestre != null ? (
                   <>
-                    <span className="text-2xl font-extrabold leading-none">{semestre}</span>
-                    <span className="text-[9px] font-bold uppercase tracking-wide mt-1 opacity-90">
+                    {/* El número es la respuesta que el estudiante vino a buscar: va en la voz
+                        display y con todo el peso que aguanta la caja. */}
+                    <span className="text-[2rem] font-bold leading-none tabular-nums">
+                      {semestre}
+                    </span>
+                    <span className="text-[9px] font-bold uppercase tracking-[0.14em] mt-1.5 opacity-90">
                       Semestre
                     </span>
                   </>
@@ -180,13 +184,13 @@ export function ResultadoHomologacion({
               </div>
               <div className="min-w-0">
                 <p
-                  className={`text-xs font-bold uppercase tracking-wider ${
+                  className={`text-[11px] font-bold uppercase tracking-[0.18em] ${
                     verde ? "text-green-600 dark:text-green-400" : "text-blue-600 dark:text-blue-400"
                   }`}
                 >
                   {verde ? "Homologación aprobada" : "Estimación preliminar"}
                 </p>
-                <h2 className="mt-1 text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                <h2 className="mt-1.5 text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 leading-tight">
                   {semestre != null
                     ? verde
                       ? `Quedas en ${ordinal(semestre)} semestre`

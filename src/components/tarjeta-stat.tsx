@@ -31,12 +31,18 @@ export function TarjetaStat({
       style={{ animationDelay: `${delayMs}ms` }}
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{titulo}</p>
+        {/* El rótulo en versalitas espaciadas: son cifras de un tablero, y el rótulo debe leerse como
+            encabezado de columna, no competir con el número. */}
+        <p className="etiqueta-registro pt-1">{titulo}</p>
         <div className={clsx("w-9 h-9 rounded-lg flex items-center justify-center shrink-0", TINTE[acento])}>
           <Icono className="w-[18px] h-[18px]" />
         </div>
       </div>
-      <p className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-3 tracking-tight">{valor}</p>
+      {/* tabular-nums: sin esto, las cifras bailan de ancho al actualizarse y la fila de tarjetas
+          "tiembla" cuando cambian los datos. */}
+      <p className="text-[2.1rem] leading-none font-bold text-slate-900 dark:text-slate-100 mt-4 tracking-[-0.02em] tabular-nums">
+        {valor}
+      </p>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import {
   extraerAsignaturasPorVision,
   extraccionSospechosa,
   type AsignaturaExtraida,
-} from "@/lib/groq/extraer-pensum";
+} from "@/lib/ia/extraer-pensum";
 import { parsearPensum } from "@/lib/extraccion/pensum-parser";
 
 // Gestión del PDF del plan de estudios de cada carrera (solo admin; la RLS del bucket 'planes' y de

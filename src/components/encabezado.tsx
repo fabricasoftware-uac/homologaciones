@@ -31,11 +31,14 @@ export function EncabezadoPagina({
             </div>
           )}
           <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight leading-tight">
+            {/* La voz display también aquí: es el mismo producto que en la landing, y el título de
+                sección es el único sitio del panel donde cabe personalidad sin restar densidad al
+                trabajo (tablas, formularios y el estudio siguen en Satoshi). */}
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-slate-100 tracking-[-0.01em] leading-tight">
               {titulo}
             </h1>
             {descripcion && (
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{descripcion}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{descripcion}</p>
             )}
           </div>
         </div>

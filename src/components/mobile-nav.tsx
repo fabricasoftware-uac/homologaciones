@@ -67,9 +67,9 @@ export function MobileNav({
           })}
         </nav>
 
-        {/* Cerrar sesión para el staff (mismo criterio que el sidebar de escritorio: al
-            estudiante/invitado el botón lo confundiría). */}
-        {(perfil.rol === "admin" || perfil.rol === "asesor" || perfil.rol === "verificador") && (
+        {/* Mismo criterio que el sidebar de escritorio: quien inició sesión con credenciales debe
+            poder salir; solo el invitado anónimo se queda sin el botón. */}
+        {!perfil.esAnonimo && (
           <div className="px-3 py-3 mt-2 border-t border-white/10">
             <form action={cerrarSesion}>
               <button

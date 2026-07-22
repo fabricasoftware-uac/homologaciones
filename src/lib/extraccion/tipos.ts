@@ -1,4 +1,4 @@
-import type { MateriaExtraida } from "@/lib/groq/extraer-materias";
+import type { MateriaExtraida } from "@/lib/ia/extraer-materias";
 
 export type { MateriaExtraida };
 

@@ -8,7 +8,8 @@ import { notificarVeredicto } from "@/lib/homologacion/correo";
 import { extraerTextoPdf } from "@/lib/pdf/extraer";
 import { procesarCaso } from "@/lib/homologacion/procesar";
 import { actualizarDecisionAdmin } from "@/lib/homologacion/motor";
-import { ErrorIANoDisponible } from "@/lib/groq/cliente";
+import { registrarPatronesAdmin, registrarRechazoPatron } from "@/lib/homologacion/patrones";
+import { ErrorIANoDisponible } from "@/lib/openrouter/cliente";
 
 // Acciones de la revisión del admin. Corren con la sesión del admin: la RLS ("Solo admin gestiona
 // vínculos" / "Solo admin actualiza casos") es la que de verdad autoriza la escritura.
@@ -110,8 +111,10 @@ export async function vincular(formData: FormData) {
       estado: "aprobado",
     });
   }
-  // Cierre del loop: la decisión del asesor alimenta el caché y aplica a futuros casos del programa.
+  // Cierre del loop: la decisión del asesor alimenta el caché exacto Y el aprendizaje por patrones
+  // (que sí generaliza a otros estudiantes con la misma materia redactada distinto).
   await actualizarDecisionAdmin(materiaOrigenId);
+  await registrarPatronesAdmin(materiaOrigenId);
   revalidatePath(`/casos/${casoId}`);
 }
 
@@ -133,9 +136,10 @@ export async function confirmarSugerencias(formData: FormData): Promise<{ aproba
     .select("id, materia_origen_id");
 
   const filas = (data as { id: string; materia_origen_id: string }[] | null) ?? [];
-  // Cierre del loop: cada materia confirmada en lote también entrena el caché de decisiones.
+  // Cierre del loop: cada materia confirmada en lote también entrena el caché y los patrones.
   for (const materiaId of new Set(filas.map((f) => f.materia_origen_id))) {
     await actualizarDecisionAdmin(materiaId);
+    await registrarPatronesAdmin(materiaId);
   }
 
   revalidatePath(`/casos/${casoId}`);
@@ -149,15 +153,23 @@ export async function desvincular(formData: FormData) {
   if (!casoId || !vinculoId) return;
 
   const supabase = crearClienteServidor();
-  // Guardamos a qué materia pertenecía ANTES de borrar, para re-cachear su estado resultante.
+  // Guardamos a qué materia y asignatura pertenecía ANTES de borrar: después del delete la fila ya
+  // no existe y no habría forma de saber QUÉ par acaba de descartar el asesor.
   const { data: vRow } = await supabase
     .from("vinculo")
-    .select("materia_origen_id")
+    .select("materia_origen_id, asignatura_id")
     .eq("id", vinculoId)
     .maybeSingle();
+  const fila = vRow as { materia_origen_id: string; asignatura_id: string } | null;
+
+  // El rechazo se aprende ANTES de borrar (con la fila todavía en pie). Es la mitad negativa del
+  // aprendizaje: sin ella, un par que la IA propone siempre y el asesor descarta siempre nunca
+  // acumularía evidencia en contra.
+  if (fila) await registrarRechazoPatron(fila.materia_origen_id, fila.asignatura_id);
+
   await supabase.from("vinculo").delete().eq("id", vinculoId);
 
-  const materiaId = (vRow as { materia_origen_id: string } | null)?.materia_origen_id;
+  const materiaId = fila?.materia_origen_id;
   if (materiaId) await actualizarDecisionAdmin(materiaId);
 
   revalidatePath(`/casos/${casoId}`);

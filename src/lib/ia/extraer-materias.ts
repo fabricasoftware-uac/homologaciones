@@ -1,7 +1,6 @@
 import { getDocumentProxy, renderPageAsImage } from "unpdf";
 
-import { llamarGroq, llamarGroqVision, ErrorIANoDisponible } from "./cliente";
-import { llamarOpenRouter, llamarOpenRouterVision } from "@/lib/openrouter/cliente";
+import { llamarOpenRouter, llamarOpenRouterVision, ErrorIANoDisponible } from "@/lib/openrouter/cliente";
 import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
 
 export type MateriaExtraida = {
@@ -93,7 +92,7 @@ function parsearMaterias(contenido: string | null): MateriaExtraida[] {
       })
       .filter((m): m is MateriaExtraida => m !== null);
   } catch {
-    console.error("[groq] Extracción de materias: la respuesta no era JSON válido:", contenido);
+    console.error("[ia] Extracción de materias: la respuesta no era JSON válido:", contenido);
     return [];
   }
 }
@@ -105,28 +104,16 @@ function parsearMaterias(contenido: string | null): MateriaExtraida[] {
 export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtraida[]> {
   const recorte = texto.slice(0, 12000);
 
+  const mensajes = [
+    { role: "system" as const, content: SISTEMA },
+    { role: "user" as const, content: recorte },
+  ];
+
+  // Extraer una lista a JSON es tarea MECÁNICA: razonamiento al mínimo para que no se coma el
+  // presupuesto de salida y devuelva el JSON truncado.
   const contenido =
-    (await llamarOpenRouter(
-      [
-        { role: "system", content: SISTEMA },
-        { role: "user", content: recorte },
-      ],
-      { json: true },
-    )) ??
-    (await llamarGroq(
-      [
-        { role: "system", content: SISTEMA },
-        { role: "user", content: recorte },
-      ],
-      { json: true },
-    )) ??
-    (await llamarGemini(
-      [
-        { role: "system", content: SISTEMA },
-        { role: "user", content: recorte },
-      ],
-      { json: true },
-    ));
+    (await llamarOpenRouter(mensajes, { json: true, maxTokens: 8000, esfuerzoRazonamiento: "low" })) ??
+    (await llamarGemini(mensajes, { json: true }));
 
   if (contenido === null) {
     throw new ErrorIANoDisponible("No se pudieron extraer las materias del certificado (texto).");
@@ -165,7 +152,6 @@ export async function extraerMateriasPorVision(
 
     const contenido =
       (await llamarOpenRouterVision(promptVision, [url], i - 1)) ??
-      (await llamarGroqVision(promptVision, [url], i - 1)) ??
       (await llamarGeminiVision(promptVision, [url], i - 1));
 
     if (contenido === null) {
