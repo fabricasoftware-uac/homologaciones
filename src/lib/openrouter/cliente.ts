@@ -371,7 +371,7 @@ export async function llamarOpenRouterVision(
 // competencias y asignaturas en vectores para encontrar las Top-N candidatas sin gastar IA.
 
 const MODELO_EMBEDDING = "qwen/qwen3-embedding-8b";
-export const DIMENSION_EMBEDDING = 768;
+export const DIMENSION_EMBEDDING = 4096;
 
 export async function generarEmbeddings(textos: string[]): Promise<(number[] | null)[]> {
   if (textos.length === 0) return [];
