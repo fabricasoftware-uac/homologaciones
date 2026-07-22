@@ -1,7 +1,6 @@
 import { getDocumentProxy, renderPageAsImage } from "unpdf";
 
 import { llamarOpenRouter, llamarOpenRouterVision, ErrorIANoDisponible } from "@/lib/openrouter/cliente";
-import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
 
 export type MateriaExtraida = {
   nombre: string;
@@ -112,8 +111,7 @@ export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtr
   // Extraer una lista a JSON es tarea MECÁNICA: razonamiento al mínimo para que no se coma el
   // presupuesto de salida y devuelva el JSON truncado.
   const contenido =
-    (await llamarOpenRouter(mensajes, { json: true, maxTokens: 8000, esfuerzoRazonamiento: "low" })) ??
-    (await llamarGemini(mensajes, { json: true }));
+    (await llamarOpenRouter(mensajes, { json: true, maxTokens: 8000, esfuerzoRazonamiento: "low" }));
 
   if (contenido === null) {
     throw new ErrorIANoDisponible("No se pudieron extraer las materias del certificado (texto).");
@@ -151,8 +149,7 @@ export async function extraerMateriasPorVision(
     if (typeof url !== "string") continue;
 
     const contenido =
-      (await llamarOpenRouterVision(promptVision, [url], i - 1)) ??
-      (await llamarGeminiVision(promptVision, [url], i - 1));
+      (await llamarOpenRouterVision(promptVision, [url], i - 1));
 
     if (contenido === null) {
       huboFallo = true;

@@ -2,9 +2,7 @@ import { createHash } from "node:crypto";
 
 import { crearClienteServicio } from "@/lib/supabase/servicio";
 
-import { llamarOpenRouter } from "@/lib/openrouter/cliente";
-import { llamarGemini } from "@/lib/gemini/cliente";
-import { generarEmbeddings } from "@/lib/gemini/cliente";
+import { llamarOpenRouter, generarEmbeddings } from "@/lib/openrouter/cliente";
 import { mapaConcurrente } from "@/lib/concurrencia";
 import {
   extraerYNormalizar,
@@ -386,8 +384,7 @@ async function estimarSemestreConGemini(
   ];
 
   const contenido =
-    (await llamarOpenRouter(mensajes, { json: true, temperatura: 0, maxTokens: 500 })) ??
-    (await llamarGemini(mensajes, { json: true, temperatura: 0, modelos: ["gemini-2.5-flash-lite"] }));
+    (await llamarOpenRouter(mensajes, { json: true, temperatura: 0, maxTokens: 500 }));
 
   if (!contenido) return null;
 

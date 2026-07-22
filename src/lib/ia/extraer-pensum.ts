@@ -1,7 +1,6 @@
 import { getDocumentProxy, renderPageAsImage } from "unpdf";
 
-import { llamarOpenRouter, llamarOpenRouterVision } from "@/lib/openrouter/cliente";
-import { llamarGemini, llamarGeminiVision } from "@/lib/gemini/cliente";
+import { llamarOpenRouter, llamarOpenRouterVision, ErrorIANoDisponible } from "@/lib/openrouter/cliente";
 import { extraerTextoEstructurado } from "@/lib/pdf/extraer-estructurado";
 
 // Extracción del PLAN DE ESTUDIOS (pensum) de una carrera. Dos caminos:
@@ -151,7 +150,7 @@ async function extraerDeTrozo(trozo: string): Promise<AsignaturaExtraida[] | nul
       maxTokens: MAX_TOKENS_SALIDA,
       topeEsperaMs: 10000,
       esfuerzoRazonamiento: "low",
-    })) ?? (await llamarGemini(mensajes, { json: true, maxTokens: 16000 }));
+    }));
   if (contenido === null) return null;
   return parsearAsignaturas(contenido);
 }
@@ -260,8 +259,7 @@ export async function extraerAsignaturasPorVision(bytes: Uint8Array): Promise<As
 
     // Round-robin de modelos por página: reparte el gasto de tokens entre los cupos de cada modelo.
     const contenido =
-      (await llamarOpenRouterVision(SISTEMA_VISION, [url], i - 1)) ??
-      (await llamarGeminiVision(SISTEMA_VISION, [url], i - 1));
+      (await llamarOpenRouterVision(SISTEMA_VISION, [url], i - 1));
     if (contenido === null) continue; // esta página falló: seguimos con las demás (best-effort)
     asignaturas.push(...parsearAsignaturas(contenido));
   }

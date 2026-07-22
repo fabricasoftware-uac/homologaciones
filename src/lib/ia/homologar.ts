@@ -1,5 +1,4 @@
 import { llamarOpenRouter, MODELOS_LIGEROS as MODELOS_LIGEROS_OR } from "@/lib/openrouter/cliente";
-import { llamarGemini, MODELOS_LIGEROS as MODELOS_LIGEROS_GEMINI } from "@/lib/gemini/cliente";
 
 // Fase 5 · Emparejamiento con IA.
 //
@@ -100,8 +99,7 @@ export async function emparejarUnidad(
   ];
 
   const contenido =
-    (await llamarOpenRouter(mensajes, { json: true, modelos: MODELOS_LIGEROS_OR, maxTokens: 2000 })) ??
-    (await llamarGemini(mensajes, { json: true, modelos: MODELOS_LIGEROS_GEMINI }));
+    (await llamarOpenRouter(mensajes, { json: true, modelos: MODELOS_LIGEROS_OR, maxTokens: 2000 }));
   if (!contenido) return [];
 
   try {
@@ -175,10 +173,6 @@ export async function emparejarMaterias(
     {
       nombre: "openrouter",
       llamar: () => llamarOpenRouter(mensajes, { json: true, modelos: MODELOS_LIGEROS_OR, maxTokens: 4000 }),
-    },
-    {
-      nombre: "gemini",
-      llamar: () => llamarGemini(mensajes, { json: true, modelos: MODELOS_LIGEROS_GEMINI }),
     },
   ];
 

@@ -1,5 +1,4 @@
 import { llamarOpenRouter, MODELOS_LIGEROS as MODELOS_LIGEROS_OR } from "@/lib/openrouter/cliente";
-import { llamarGemini, MODELOS_LIGEROS as MODELOS_LIGEROS_GEMINI } from "@/lib/gemini/cliente";
 
 // Validación de contenido del PDF con IA: ¿el archivo que subió la persona es de verdad un
 // documento académico (certificado de notas / historial / pensum) y no publicidad, contenido para
@@ -58,8 +57,7 @@ export async function validarDocumentoAcademico(texto: string): Promise<Veredict
   ];
 
   const contenido =
-    (await llamarOpenRouter(mensajes, { json: true, modelos: MODELOS_LIGEROS_OR, maxTokens: 500 })) ??
-    (await llamarGemini(mensajes, { json: true, modelos: MODELOS_LIGEROS_GEMINI }));
+    (await llamarOpenRouter(mensajes, { json: true, modelos: MODELOS_LIGEROS_OR, maxTokens: 500 }));
 
   if (!contenido) {
     return { valido: true, motivo: "validación no disponible" };

@@ -104,7 +104,7 @@ export const MODELOS_LIGEROS: string[] = MODELOS;
 // mismo que ya valida bien el JSON; gemma-4-31b es el hermano denso; nemotron-nano-12b-vl es de
 // otra familia, como última red por si un problema afecta a toda la familia gemma.
 const MODELOS_VISION: string[] = [
-  "qwen/qwen3-embedding-8b",
+  "deepseek/deepseek-v4-flash",
   "nvidia/nemotron-nano-12b-v2-vl:free",
 ];
 
@@ -362,4 +362,60 @@ export async function llamarOpenRouterVision(
 
   console.error("[openrouter-vision] Todos los modelos de visión fallaron.");
   return null;
+}
+
+// ── Embeddings ──
+//
+// Genera embeddings con el modelo qwen/qwen3-embedding-8b (768 dimensiones). OpenRouter usa el mismo
+// formato que la API de OpenAI para embeddings. Se usa para la búsqueda semántica (Fase 6): convertir
+// competencias y asignaturas en vectores para encontrar las Top-N candidatas sin gastar IA.
+
+const MODELO_EMBEDDING = "qwen/qwen3-embedding-8b";
+export const DIMENSION_EMBEDDING = 768;
+
+export async function generarEmbeddings(textos: string[]): Promise<(number[] | null)[]> {
+  if (textos.length === 0) return [];
+
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[openrouter-embed] Falta OPENROUTER_API_KEY.");
+    return textos.map(() => null);
+  }
+
+  const LOTE = 100;
+  const resultado: (number[] | null)[] = [];
+
+  for (let i = 0; i < textos.length; i += LOTE) {
+    const lote = textos.slice(i, i + LOTE);
+    try {
+      const respuesta = await fetch("https://openrouter.ai/api/v1/embeddings", {
+        method: "POST",
+        headers: cabeceras(apiKey),
+        body: JSON.stringify({ model: MODELO_EMBEDDING, input: lote }),
+      });
+
+      if (!respuesta.ok) {
+        const detalle = await respuesta.text();
+        console.warn(`[openrouter-embed] Lote falló (HTTP ${respuesta.status}): ${detalle.slice(0, 200)}`);
+        for (let j = 0; j < lote.length; j++) resultado.push(null);
+        continue;
+      }
+
+      const datos = (await respuesta.json()) as { data?: { embedding: number[]; index: number }[] };
+      const embs = datos.data ?? [];
+      if (embs.length === lote.length) {
+        for (const e of embs) {
+          resultado.push(e.embedding.length > 0 ? e.embedding : null);
+        }
+      } else {
+        console.warn(`[openrouter-embed] Batch desalineado (${embs.length}/${lote.length}); null.`);
+        for (let j = 0; j < lote.length; j++) resultado.push(null);
+      }
+    } catch (e) {
+      console.warn(`[openrouter-embed] Error de red:`, e);
+      for (let j = 0; j < lote.length; j++) resultado.push(null);
+    }
+  }
+
+  return resultado;
 }
