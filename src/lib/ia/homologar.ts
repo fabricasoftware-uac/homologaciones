@@ -102,8 +102,11 @@ export async function emparejarUnidad(
     (await llamarOpenRouter(mensajes, {
       json: true,
       modelos: MODELOS_LIGEROS_OR,
+      // Que la CADENA descarte al modelo que no entregue JSON utilizable y pruebe el siguiente.
+      // Validar esto aquí afuera no sirve: para cuando nos llega, la cadena ya se dio por resuelta.
+      validar: (c) => extraerJson(c) !== null,
       maxTokens: 2000,
-      esfuerzoRazonamiento: "low",
+      esfuerzoRazonamiento: "off",
     }));
   if (!contenido) return [];
 
@@ -181,8 +184,14 @@ export async function emparejarMaterias(
         llamarOpenRouter(mensajes, {
           json: true,
           modelos: MODELOS_LIGEROS_OR,
-          maxTokens: 4000,
-          esfuerzoRazonamiento: "low",
+          // Que la CADENA descarte al modelo que no entregue JSON utilizable y pruebe el siguiente.
+          // Validarlo aquí afuera no sirve: para entonces la cadena ya se dio por resuelta.
+          validar: (c) => extraerJson(c) !== null,
+          // Un microlote SENA real (4 competencias × 59 asignaturas) gasta ~900-1050 tokens de
+          // salida con el razonamiento en "off". 8000 deja margen de sobra para un caso denso sin
+          // volver a arriesgar un truncamiento, que es lo que rompió producción.
+          maxTokens: 8000,
+          esfuerzoRazonamiento: "off",
         }),
     },
   ];

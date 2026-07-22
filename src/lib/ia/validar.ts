@@ -11,6 +11,12 @@ import { llamarOpenRouter, MODELOS_LIGEROS as MODELOS_LIGEROS_OR } from "@/lib/o
 
 export type VeredictoDocumento = { valido: boolean; motivo: string };
 
+// Validador para la cadena de modelos: descarta al que no devuelva JSON parseable y deja que se
+// pruebe el siguiente, en vez de dar la cadena por resuelta con una respuesta inservible.
+const esJson = (c: string) => {
+  try { JSON.parse(c); return true; } catch { return false; }
+};
+
 const SISTEMA = `Eres un filtro de contenido para una plataforma de homologaciones universitarias en Colombia.
 Recibes el TEXTO extraído de un PDF que una persona subió como soporte académico (certificado de notas, historial académico, constancia, pensum...).
 
@@ -61,7 +67,8 @@ export async function validarDocumentoAcademico(texto: string): Promise<Veredict
       json: true,
       modelos: MODELOS_LIGEROS_OR,
       maxTokens: 500,
-      esfuerzoRazonamiento: "low",
+      esfuerzoRazonamiento: "off",
+      validar: esJson,
     }));
 
   if (!contenido) {

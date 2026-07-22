@@ -149,7 +149,9 @@ async function extraerDeTrozo(trozo: string): Promise<AsignaturaExtraida[] | nul
       json: true,
       maxTokens: MAX_TOKENS_SALIDA,
       topeEsperaMs: 10000,
-      esfuerzoRazonamiento: "low",
+      esfuerzoRazonamiento: "off",
+      // Si un modelo devuelve algo que no es JSON, que la cadena pruebe el siguiente.
+      validar: (c) => { try { JSON.parse(c); return true; } catch { return false; } },
     }));
   if (contenido === null) return null;
   return parsearAsignaturas(contenido);

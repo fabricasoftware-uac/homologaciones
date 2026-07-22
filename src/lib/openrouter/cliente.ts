@@ -35,6 +35,13 @@ export class ErrorIANoDisponible extends Error {
 const MAX_REINTENTOS_429 = 2;
 const TOPE_ESPERA_MS = 2500;
 
+// Tope de espera por petición a UN modelo. El pipeline corre dentro de una función de Vercel con
+// 60 s en total (ver `export const maxDuration` en las páginas), y en un caso SENA hay que meter
+// ahí la lectura del PDF, los embeddings, ~5 microlotes de emparejamiento y la estimación de
+// semestre. 25 s deja margen para que, si el primer modelo se atasca, el respaldo todavía alcance
+// a responder dentro del presupuesto.
+const TIMEOUT_MODELO_MS = 25000;
+
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Cuánto pide esperar OpenRouter ante un 429: primero el header retry-after (segundos); si no, lo
@@ -76,29 +83,28 @@ function clasificarRateLimit(detalle: string): ClaseRateLimit {
 
 // ── Cadenas de modelos ──
 //
-// Elegidos probando el payload REAL de homologación SENA (competencias con resultados de
-// aprendizaje × asignaturas del pensum) contra el catálogo vigente de OpenRouter (jul-2026).
-// Los tres son de PAGO y de proveedores/infraestructura distintos entre sí (para que la caída de
-// uno no arrastre a los demás) y cuestan fracciones de centavo por request:
+// Ordenados por LATENCIA, no solo por calidad: el pipeline vive dentro de una función de Vercel con
+// 60 s y el emparejamiento de un caso SENA son ~5 microlotes. Un modelo lento no es "un poco peor",
+// es un caso que muere por timeout. Medidos con el payload REAL de un microlote SENA (4 competencias
+// con sus resultados de aprendizaje × las 59 asignaturas del pensum), TODOS con razonamiento en
+// "off" —imprescindible, ver OpcionesOpenRouter.esfuerzoRazonamiento—:
 //
-//   deepseek/deepseek-v4-flash → primario. El más barato de los tres (~$0.10/$0.20 por millón de
-//     tokens prompt/completion), 1M de contexto, JSON estable. Razona por defecto aunque no se le
-//     pida: por eso toda llamada que lo usa debe mandar esfuerzoRazonamiento "low" u "off", o el
-//     razonamiento se come el maxTokens y la respuesta sale truncada.
-//   google/gemma-4-26b-a4b-it → respaldo 1 (versión de PAGO del mismo modelo que ganó las pruebas
-//     como ":free"; ver histórico en git). Sus similitudes vienen CALIBRADAS (95 para una
-//     equivalencia clara, 70 para una parcial) en vez de un valor plano, y rechaza equivalencias
-//     forzadas —no homologa Cálculo I/II desde una competencia de matemáticas básicas—, que es
-//     justo lo que el coordinador revisa. Es multimodal, así que también sirve para visión (OCR).
-//   google/gemini-2.5-flash-lite → respaldo 2, infraestructura de Google directa (no un proveedor
-//     de terceros como los anteriores dos): la red de seguridad si AMBOS de arriba fallan a la vez.
+//   google/gemini-2.5-flash-lite → primario. 0.8-4.8 s, JSON entero, y el que más equivalencias
+//     útiles encontró (18 propuestas, 12 por encima del umbral). Infraestructura de Google directa.
+//   qwen/qwen3.5-flash-02-23 → respaldo 1. El más rápido (1.3 s) y el más barato del trío.
+//   google/gemma-4-26b-a4b-it → respaldo 2. El más lento (10.5 s) pero el de similitudes mejor
+//     calibradas; queda al final como ancla de calidad. Es multimodal, así que también va en visión.
 //
-// DESCARTADOS (probados, no usar): nvidia/nemotron-3-super-120b:free razona en voz alta hasta
-// agotar max_tokens y nunca emite el JSON (el mismo fallo que tenía qwen en Groq).
+// DESCARTADO (estuvo de primario y tumbó producción el 22-jul-2026): deepseek/deepseek-v4-flash.
+// Razona por defecto y con esfuerzo "low" tardó 120 s en este mismo payload —el doble del
+// presupuesto entero de Vercel—, además de truncar el JSON. Con razonamiento "off" baja a 3.9 s y
+// responde bien, pero su varianza es justo el riesgo que no podemos correr en el camino crítico.
+// DESCARTADO también: openai/gpt-5-nano, que rechaza la petición si se desactiva el razonamiento
+// ("Reasoning is mandatory for this endpoint").
 const MODELOS: string[] = [
-  "deepseek/deepseek-v4-flash",
-  "google/gemma-4-26b-a4b-it",
   "google/gemini-2.5-flash-lite",
+  "qwen/qwen3.5-flash-02-23",
+  "google/gemma-4-26b-a4b-it",
 ];
 
 // Cadena LIGERA para tareas de comparación por índices (emparejamiento). Hoy es la misma que la
@@ -107,13 +113,14 @@ const MODELOS: string[] = [
 // export aparte por si conviene abaratarla o especializarla más adelante.
 export const MODELOS_LIGEROS: string[] = MODELOS;
 
-// Modelos multimodales para leer PDFs ESCANEADOS (sin capa de texto). deepseek-v4-flash NO sirve
-// aquí: es texto-solo (probado: OpenRouter devuelve 404 "No endpoints found that support image
-// input" en cuanto se le manda una imagen). gemma-4 encabeza por ser el mismo que ya valida bien
-// el JSON de texto; gemini-2.5-flash-lite es el respaldo en infraestructura de Google directa.
+// Modelos multimodales para leer PDFs ESCANEADOS (sin capa de texto). Mismo criterio de latencia
+// que en MODELOS: aquí va UNA página por petición y varias páginas comparten el presupuesto de 60 s
+// de la función, así que el rápido encabeza y el lento queda de respaldo.
+// deepseek-v4-flash NO sirve aquí: es texto-solo (probado, OpenRouter devuelve 404 "No endpoints
+// found that support image input" apenas se le manda una imagen).
 const MODELOS_VISION: string[] = [
-  "google/gemma-4-26b-a4b-it",
   "google/gemini-2.5-flash-lite",
+  "google/gemma-4-26b-a4b-it",
 ];
 
 // Las peticiones de visión son GRANDES (una imagen de página completa consume miles de tokens), así
@@ -133,10 +140,18 @@ export type OpcionesOpenRouter = {
   // pensado para llamadas interactivas; la EXTRACCIÓN de un pensum corre en una server action con
   // maxDuration 60 y le conviene esperar más.
   topeEsperaMs?: number;
-  // Control del razonamiento. En tareas MECÁNICAS (extraer listas a JSON) conviene "low" o
-  // desactivarlo: si el modelo razona sin límite, el razonamiento se come el presupuesto de
-  // max_tokens y la respuesta sale truncada o vacía.
+  // Control del razonamiento. En tareas MECÁNICAS (comparar listas, extraer a JSON) va SIEMPRE en
+  // "off". No es una preferencia estética: con "low", en un microlote SENA real, gemma-4 gastó 3453
+  // de sus 4000 tokens de salida razonando y devolvió el JSON cortado; con "off" gastó 0 tokens de
+  // razonamiento, respondió en 897 y el JSON salió entero. El razonamiento compite contra
+  // max_tokens y en estas tareas no aporta nada.
   esfuerzoRazonamiento?: "low" | "medium" | "high" | "off";
+  // Tope de espera por petición. Ver TIMEOUT_MODELO_MS.
+  timeoutMs?: number;
+  // Comprueba que el contenido devuelto sirva ANTES de dar la cadena por resuelta. Devolver false
+  // descarta ese modelo y pasa al siguiente. Quien pide JSON debería mandar siempre un validador:
+  // sin él, un modelo que responde 200 con basura deja sin usar todos los respaldos.
+  validar?: (contenido: string) => boolean;
 };
 
 type IntentoResultado =
@@ -168,7 +183,7 @@ function bloqueRazonamiento(esfuerzo: OpcionesOpenRouter["esfuerzoRazonamiento"]
 // Un intento con UN modelo. Decide si vale la pena pasar al siguiente:
 //   - 401/403 (credencial) -> NO: la misma key falla en todos.
 //   - 429 de cuota DIARIA  -> NO: la cuota es de la cuenta, no del modelo.
-//   - resto (429 pasajero, 400/404 modelo retirado, 5xx, red, respuesta vacía) -> SÍ.
+//   - resto (429 pasajero, 400/404 modelo retirado, 5xx, red, timeout, vacía, truncada) -> SÍ.
 async function intentarModelo(
   apiKey: string,
   modelo: string,
@@ -187,6 +202,11 @@ async function intentarModelo(
         ...(opciones.maxTokens ? { max_tokens: opciones.maxTokens } : {}),
         messages: mensajes,
       }),
+      // Tope por petición: el pipeline entero corre dentro de una función de Vercel con 60 s de
+      // presupuesto, así que NINGÚN modelo puede quedarse con todo. Sin esto, un modelo lento se
+      // llevaba la petición completa por delante y ni siquiera se llegaba a probar el respaldo
+      // (medido: deepseek-v4-flash con razonamiento tardó 120 s en un microlote SENA real).
+      signal: AbortSignal.timeout(opciones.timeoutMs ?? TIMEOUT_MODELO_MS),
     });
 
     if (!respuesta.ok) {
@@ -221,10 +241,25 @@ async function intentarModelo(
     const eleccion = datos.choices?.[0];
     const contenido = eleccion?.message?.content;
     if (!contenido) return { ok: false, reintentar: true, motivo: "respuesta vacía" };
-    // Truncado por presupuesto de salida: el JSON viene cortado y no parseará. Avisamos para que se
-    // vea en los logs (la causa real suele ser un maxTokens corto o razonamiento sin límite).
-    if (eleccion?.finish_reason === "length") {
-      console.warn(`[openrouter] ${modelo} truncó la respuesta (finish_reason=length); sube maxTokens.`);
+
+    // ── Un 200 NO significa que la respuesta sirva ──
+    // Aquí estuvo la falla que tumbó producción el 22-jul-2026: una respuesta CORTADA se devolvía
+    // como ok:true, la cadena se daba por resuelta con el primer modelo, y quien llamaba se
+    // quedaba con un JSON roto sin haber probado los respaldos —que habrían contestado bien—.
+    // Dos formas de venir cortada, ambas medidas contra el servicio real:
+    //   finish_reason "length" → se agotó max_tokens (típico si el modelo razona; ver
+    //     esfuerzoRazonamiento, que por eso va en "off" en todas las tareas mecánicas).
+    //   finish_reason "error"  → el proveedor cortó el stream a mitad del JSON.
+    const fin = eleccion?.finish_reason;
+    if (fin === "length" || fin === "error") {
+      return { ok: false, reintentar: true, motivo: `respuesta cortada (finish_reason=${fin})` };
+    }
+
+    // Validación del CONTENIDO, no solo del transporte. Enumerar finish_reasons no alcanza: un
+    // modelo puede terminar con "stop" y aun así devolver prosa, una negativa o un JSON inválido.
+    // Que la valide la CADENA (y no el llamador) es lo que hace que el respaldo sirva de algo.
+    if (opciones.validar && !opciones.validar(contenido)) {
+      return { ok: false, reintentar: true, motivo: "el contenido no pasó la validación del llamador" };
     }
     return { ok: true, contenido };
   } catch (error) {
@@ -315,8 +350,14 @@ export async function llamarOpenRouterVision(
             temperature: 0,
             response_format: { type: "json_object" },
             max_tokens: 4000,
+            // Mismo motivo que en el camino de texto: leer una página es una tarea mecánica (OCR a
+            // JSON) y el razonamiento solo compite contra max_tokens hasta truncar la respuesta.
+            reasoning: { enabled: false },
             messages: [{ role: "user", content: contenido }],
           }),
+          // Las páginas van de a una por petición, pero varias páginas comparten el mismo
+          // presupuesto de 60 s de la función: ningún modelo puede acaparar la petición.
+          signal: AbortSignal.timeout(TIMEOUT_MODELO_MS),
         });
 
         if (respuesta.ok) {

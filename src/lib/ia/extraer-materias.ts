@@ -111,7 +111,13 @@ export async function extraerMateriasDeTexto(texto: string): Promise<MateriaExtr
   // Extraer una lista a JSON es tarea MECÁNICA: razonamiento al mínimo para que no se coma el
   // presupuesto de salida y devuelva el JSON truncado.
   const contenido =
-    (await llamarOpenRouter(mensajes, { json: true, maxTokens: 8000, esfuerzoRazonamiento: "low" }));
+    (await llamarOpenRouter(mensajes, {
+      json: true,
+      maxTokens: 8000,
+      esfuerzoRazonamiento: "off",
+      // Si un modelo devuelve algo que no es JSON, que la cadena pruebe el siguiente.
+      validar: (c) => { try { JSON.parse(c); return true; } catch { return false; } },
+    }));
 
   if (contenido === null) {
     throw new ErrorIANoDisponible("No se pudieron extraer las materias del certificado (texto).");
