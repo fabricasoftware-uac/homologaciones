@@ -57,6 +57,22 @@ function seleccionarExtractor(tipo: TipoInstitucion): Extractor {
   return tipo === "sena" ? parserSena : parserIA;
 }
 
+// Rescate con IA del camino SENA. Devuelve null si la IA no está disponible (sin créditos, sin key,
+// todos los modelos caídos): el llamador decide si eso basta para descartar lo que ya tenía. Sin
+// este catch, un fallo del proveedor tumbaba el caso entero aunque el parser determinístico hubiera
+// leído casi todo.
+async function rescatarConIA(
+  textoPdf: string,
+  bytesPdf?: Uint8Array,
+): Promise<{ unidades: MateriaExtraida[]; tipoReal: TipoInstitucion } | null> {
+  try {
+    return sanearRescateSena(await parserIA.extraer(textoPdf, bytesPdf));
+  } catch (e) {
+    console.warn("[extraccion] El rescate con ParserIA no se pudo completar:", e);
+    return null;
+  }
+}
+
 export async function extraerUnidadesAcademicas(
   textoPdf: string,
   institucionOrigen: string,
@@ -85,15 +101,47 @@ export async function extraerUnidadesAcademicas(
       return { unidades, tipoInstitucion: tipoReal, metodo: "VisionSENA" };
     }
 
-    const unidades = await parserSena.extraer(textoPdf);
-    if (unidades.length > 0) {
-      return { unidades, tipoInstitucion, metodo: parserSena.nombre };
+    const diag = await parserSena.extraerConDiagnostico(textoPdf, bytesPdf);
+
+    // La condición de salud es `fallidas === 0`, NO que el total cuadre con `esperadas`: fusionar
+    // una competencia partida por un salto de página baja el total A PROPÓSITO. Lo que no se tolera
+    // es una fila que el parser no supo leer.
+    if (diag.unidades.length > 0 && diag.fallidas === 0) {
+      return { unidades: diag.unidades, tipoInstitucion, metodo: parserSena.nombre };
     }
 
-    console.warn(
-      "[extraccion] SenaParser no encontró competencias (¿el formato cambió, o no es un documento SENA?); fallback a ParserIA.",
-    );
-    const rescate = sanearRescateSena(await parserIA.extraer(textoPdf, bytesPdf));
+    // Antes el rescate solo se disparaba con CERO competencias, así que una extracción parcial
+    // (19 de 20) pasaba como buena y el caso seguía adelante con horas de menos, sin que nadie se
+    // enterara. Ahora cualquier fila ilegible dispara el rescate.
+    const motivo =
+      diag.unidades.length === 0
+        ? "no encontró competencias (¿el formato cambió, o no es un documento SENA?)"
+        : `leyó ${diag.unidades.length} competencias pero ${diag.fallidas} fila(s) de ${diag.esperadas} quedaron ilegibles`;
+    console.warn(`[extraccion] SenaParser ${motivo}; se intenta el rescate con ParserIA.`);
+
+    const rescate = await rescatarConIA(textoPdf, bytesPdf);
+
+    // El rescate con IA solo gana si trae MÁS unidades que el parser determinístico. Si trae menos
+    // (o falla por completo, p. ej. sin créditos de OpenRouter), quedarse con lo determinístico es
+    // estrictamente mejor que tirar 19 competencias correctas por 1 ilegible.
+    if (!rescate || rescate.unidades.length <= diag.unidades.length) {
+      if (diag.unidades.length === 0) {
+        return {
+          unidades: rescate?.unidades ?? [],
+          tipoInstitucion: rescate?.tipoReal ?? tipoInstitucion,
+          metodo: `${parserSena.nombre}→${parserIA.nombre}`,
+        };
+      }
+      console.warn(
+        `[extraccion] El rescate con IA no mejoró (${rescate?.unidades.length ?? 0} unidades); se conserva la extracción determinística.`,
+      );
+      return {
+        unidades: diag.unidades,
+        tipoInstitucion,
+        metodo: `${parserSena.nombre} (parcial: ${diag.fallidas}/${diag.esperadas} ilegibles)`,
+      };
+    }
+
     return {
       unidades: rescate.unidades,
       tipoInstitucion: rescate.tipoReal,

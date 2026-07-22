@@ -15,3 +15,12 @@ export async function extraerTextoPdf(datos: Uint8Array): Promise<string> {
   const { text } = await extractText(pdf, { mergePages: true });
   return text;
 }
+
+// Mismo texto, pero SIN unir las páginas. Lo pide el SenaParser: los encabezados y pies de página
+// solo se pueden reconocer por REPETICIÓN entre páginas, y una vez unido el texto esa frontera se
+// pierde para siempre. Ver quitarCromoRepetido en src/lib/extraccion/sena-parser.ts.
+export async function extraerPaginasPdf(datos: Uint8Array): Promise<string[]> {
+  const pdf = await getDocumentProxy(datos.slice());
+  const { text } = await extractText(pdf, { mergePages: false });
+  return Array.isArray(text) ? text : [text];
+}
