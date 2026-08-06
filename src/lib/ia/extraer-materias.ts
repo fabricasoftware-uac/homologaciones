@@ -27,6 +27,13 @@ Reglas para semestre_origen:
 - Si no hay una separación explícita, infiérelo por el orden y el nivel de las materias.
 - Usa null SOLO si es imposible determinarlo.
 
+REGLA CRÍTICA — SOLO LO CURSADO:
+- Muchos documentos listan el PLAN DE ESTUDIOS COMPLETO y marcan lo que el estudiante NO ha cursado con relleno: asteriscos ("*****"), guiones, o la fila del lado derecho vacía.
+- Extrae ÚNICAMENTE las materias con una CALIFICACIÓN real. Si la fila no tiene nota (relleno, vacío, "N/A", "en curso", "pendiente"), NO la incluyas: el estudiante no la cursó.
+- La calificación es la del ESTUDIANTE (columnas del tipo "cursos vistos", "nota", "calificación"), no un requisito del plan.
+- Si el documento muestra el nombre dos veces (el del plan y el de lo cursado, este último a veces recortado), usa el nombre MÁS COMPLETO.
+- Excepción: si NINGUNA materia del documento trae calificación, entonces el documento no reporta notas; en ese caso extrae todas.
+
 No inventes materias que no estén en el texto. Ignora encabezados, totales y promedios.
 Devuelve las materias ORDENADAS por semestre. Responde ÚNICAMENTE un objeto JSON con esta forma:
 {"materias": [{"nombre": "...", "codigo": null, "creditos": null, "nota": null, "semestre_origen": 1}]}`;
@@ -39,6 +46,12 @@ Lee las imágenes y extrae TODAS las materias que cursó el estudiante, ORGANIZA
 - creditos: número de créditos si aparece; si no, null.
 - nota: la calificación tal como aparece (texto); si no, null.
 - semestre_origen: el número de semestre al que pertenece (1, 2, 3, ...); numera los periodos en orden cronológico. Usa null solo si es imposible determinarlo.
+
+REGLA CRÍTICA — SOLO LO CURSADO:
+- Muchos documentos listan el PLAN DE ESTUDIOS COMPLETO y marcan lo que el estudiante NO ha cursado con relleno: asteriscos ("*****"), guiones, o la fila del lado derecho vacía.
+- Extrae ÚNICAMENTE las materias con una CALIFICACIÓN real. Si la fila no tiene nota (relleno, vacío, "N/A", "en curso", "pendiente"), NO la incluyas: el estudiante no la cursó.
+- Si el documento muestra el nombre dos veces (el del plan y el de lo cursado, este último a veces recortado), usa el nombre MÁS COMPLETO.
+- Excepción: si NINGUNA materia del documento trae calificación, entonces el documento no reporta notas; en ese caso extrae todas.
 
 No inventes materias que no aparezcan en las imágenes. Ignora encabezados, totales y promedios.
 Responde ÚNICAMENTE un objeto JSON con esta forma:

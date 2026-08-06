@@ -232,6 +232,9 @@ Notas predefinidas reutilizables por el admin al finalizar casos.
 
 **Librería**: `unpdf` (extracción de texto), OpenRouter/Gemini (IA)
 
+**Antes de la IA**: si el documento es el reporte "SEGUIMIENTO PENSUM GENERAL POR ESTUDIANTE" (ver 6.3),
+lo lee un parser determinístico y la IA no interviene.
+
 **Flujo**:
 1. `unpdf.extractText()` extrae el texto completo del PDF con `mergePages: true`
 2. Si el texto tiene < 30 caracteres, se considera **escaneado** y se va por visión
@@ -272,6 +275,52 @@ RESULTADOS DE APRENDIZAJE
 **Ventajas**: 0 tokens, 0 llamadas API, respuesta en milisegundos, 100% determinístico.
 
 **Visión SENA**: si el PDF del SENA está escaneado (sin capa de texto), se usa `SISTEMA_VISION_SENA` (prompt de visión específico para SENA) que extrae competencias con el mismo formato.
+
+### 6.3 Reporte "SEGUIMIENTO PENSUM GENERAL POR ESTUDIANTE"
+
+**Estrategia**: parser determinístico por COORDENADAS, **sin IA** (`src/lib/extraccion/seguimiento-pensum-parser.ts`).
+
+**Detección**: el documento trae el título `SEGUIMIENTO PENSUM GENERAL POR ESTUDIANTE` y el encabezado
+de tabla (`Cod_Curso … Nombre_Curso … ----Nota----`). No depende de qué institución declaró el
+estudiante: cualquier otro certificado sigue por el `ParserIA` sin enterarse.
+
+**Formato**: el reporte lista el PLAN COMPLETO de la carrera (columna *CURSOS PENSUM*) y, al lado, lo
+que el estudiante cursó (columna *CURSOS VISTOS*). Lo no cursado va relleno de asteriscos.
+
+**Parser**:
+1. `extraerRenglonesPdf` (`src/lib/pdf/extraer.ts`) reconstruye los renglones por posición. El texto
+   unido no sirve: en el orden del content-stream las celdas de una fila salen revueltas.
+2. Cada renglón se lee celda por celda: `No → Cod_Curso → Nombre → CR → [lado cursado]`.
+3. El nombre se toma del PLAN (el de "cursos vistos" viene recortado por el ancho de la celda).
+4. La nota es el único DECIMAL de la fila (créditos, número de fila y año son enteros).
+5. Las filas sin nota NO se extraen: son casillas del plan que el estudiante no cursó.
+6. Reconciliación con `Total Créditos Aprobados` del propio reporte, en el log.
+
+**Ventajas**: 0 tokens, y evita el OCR por visión al que se iba antes (el relleno de asteriscos hundía
+la proporción de letras del Quality Gate por debajo del umbral).
+
+Ver `docs/ADR-004 Sin nota no hay materia.md`.
+
+### 6.4 Regla común: sin nota no hay materia, y sin ganarla tampoco
+
+`src/lib/extraccion/notas.ts` (`filtrarHomologables`) se aplica a TODO el camino universitario —el
+parser de seguimiento y el `ParserIA`— y descarta, ya extraídas:
+
+1. Las unidades **sin calificación real** (relleno, vacío, "en curso", "N/A"): no se cursaron.
+2. Las **reprobadas**: solo se homologa lo ganado. El umbral es `configuracion.nota_minima` (3.0 por
+   defecto, editable en `/configuracion`); `procesar.ts` lo lee y lo pasa como parámetro, así la capa
+   de extracción no toca la base de datos.
+
+**Excepción**: si NINGUNA unidad del documento trae nota, el certificado no reporta calificaciones y
+se conservan todas (filtrar dejaría el caso vacío y no habría con qué decidir).
+
+La escala colombiana (0.0-5.0, se gana desde 3.0) se interpreta en un solo archivo,
+`src/lib/extraccion/escala-nota.ts` (`notaANumero`, `esNotaAprobada`), que usan tanto el filtro como
+el estudio: el panel y el pipeline no pueden entender "3.0" de forma distinta. Ese módulo no importa
+nada, para que el componente de cliente no arrastre `unpdf` ni el cliente de OpenRouter al navegador.
+
+El **SENA queda fuera** de este filtro: sus competencias vienen con "Aprobado"/"No aprobado" y su
+extracción tiene sus propias reglas (ver 6.2 y ADR-003).
 
 ---
 
@@ -457,7 +506,10 @@ No hay búsqueda vectorial, ni índices de texto completo (tsvector). Todo el ma
 |---|---|
 | `../openrouter/cliente.ts` | Cliente de bajo nivel para OpenRouter. Funciones `llamarOpenRouter()` (texto) y `llamarOpenRouterVision()` (visión). Cadena de modelos con fallback, reintentos ante 429, corte inmediato ante cuota diaria agotada, `ErrorIANoDisponible`. |
 | `validar.ts` | `validarDocumentoAcademico()`: clasifica si el PDF es un documento académico legítimo. |
-| `extraer-materias.ts` | `extraerMateriasDeTexto()`, `extraerMateriasPorVision()`: extrae materias del certificado del estudiante. `parsearSENA()`: parser regex para certificados SENA. |
+| `extraer-materias.ts` | `extraerMateriasDeTexto()`, `extraerMateriasPorVision()`: extrae materias del certificado del estudiante. El prompt exige solo lo CURSADO: una fila sin calificación no se extrae. |
+| `../extraccion/seguimiento-pensum-parser.ts` | Parser determinístico por coordenadas del reporte "SEGUIMIENTO PENSUM GENERAL POR ESTUDIANTE" (ver 6.3). |
+| `../extraccion/notas.ts` | `filtrarHomologables()`: descarta lo no cursado y lo reprobado (ver 6.4). |
+| `../extraccion/escala-nota.ts` | La escala 0.0-5.0 en un solo sitio: `notaANumero()`, `esNotaAprobada()`. Sin imports (lo usa también el estudio, que es cliente). |
 | `extraer-pensum.ts` | `extraerAsignaturasDePensum()`, `extraerAsignaturasPorVision()`: extrae asignaturas del plan de estudios. |
 | `homologar.ts` | `emparejarMaterias()`: compara materias origen con asignaturas destino y devuelve vínculos con similitud. |
 
@@ -487,7 +539,7 @@ No hay búsqueda vectorial, ni índices de texto completo (tsvector). Todo el ma
 
 | Archivo | Propósito |
 |---|---|
-| `extraer.ts` | `extraerTextoPdf()`: extrae texto de PDFs usando `unpdf`. |
+| `extraer.ts` | `extraerTextoPdf()`: texto plano. `extraerPaginasPdf()`: texto sin unir páginas (SenaParser). `extraerRenglonesPdf()`: renglones con coordenadas, para leer TABLAS. |
 
 ### 11.6 `src/lib/acta/` — Generación de actas
 
@@ -554,6 +606,7 @@ Catálogo de ~66 instituciones de educación superior colombianas para el autoco
 - [x] Validación de PDF académico con IA (anti-spam)
 - [x] Extracción de materias de certificados universitarios (texto y visión/OCR)
 - [x] Extracción de competencias del SENA (parser regex determinístico)
+- [x] Extracción del reporte "SEGUIMIENTO PENSUM GENERAL POR ESTUDIANTE" (parser por coordenadas, solo lo cursado y ganado)
 - [x] Extracción de asignaturas de pensums (texto y visión)
 - [x] Emparejamiento IA entre materias origen y asignaturas destino
 - [x] Estimación del semestre (IA + algoritmo determinístico)
@@ -588,7 +641,7 @@ Catálogo de ~66 instituciones de educación superior colombianas para el autoco
 - [ ] Búsqueda vectorial / embeddings para matching de materias
 - [ ] Sistema de medición y control de costos de IA por caso
 - [ ] Parser SENA robusto ante cambios de formato
-- [ ] Extracción de materias sin IA para certificados universitarios (similar al parser SENA pero para formatos universitarios comunes)
+- [~] Extracción de materias sin IA para certificados universitarios: hecho para el reporte de seguimiento de pensum (6.3); los demás formatos siguen con IA
 - [ ] Soporte para múltiples páginas de certificado en visión (más de 8)
 - [ ] Notificaciones en tiempo real para el estudiante (sin recargar)
 - [ ] Firma digital en actas

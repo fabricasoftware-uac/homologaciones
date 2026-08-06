@@ -9,6 +9,7 @@ import {
   detectarInstitucion,
   type UnidadAcademicaNormalizada,
 } from "@/lib/extraccion";
+import { NOTA_MINIMA_APROBACION } from "@/lib/extraccion/escala-nota";
 import { decidirVinculos } from "./motor";
 
 // Orquestador del pipeline de homologación (Fases 4 + 5). Corre como "el sistema" (cliente con la
@@ -91,11 +92,14 @@ export async function procesarCaso(
       `[dedup] Documento ya procesado (caso ${previa.casoId}): reutilizo ${unidades.length} unidades y embeddings (0 tokens).`,
     );
   } else {
-    // 2 y 3. Extraer y normalizar unidades académicas del PDF.
+    // 2 y 3. Extraer y normalizar unidades académicas del PDF. El mínimo de aprobación va como
+    // parámetro (no lo lee la extracción): solo entran las materias GANADAS, porque una materia
+    // perdida no se puede homologar y llenaba el panel de tarjetas que el asesor solo podía rechazar.
     const resultado = await extraerYNormalizar(
       textoPdf,
       filaCaso.institucion_origen_nombre ?? "",
       bytesPdf,
+      { notaMinima: await leerNotaMinima(supabase) },
     );
     unidades = resultado.unidades;
     metodoExtraccion = resultado.metodo;
@@ -236,6 +240,26 @@ async function asegurarEmbeddingsAsignaturas(
 
   const ok = escrituras.filter(Boolean).length;
   console.log(`[embeddings] Asignaturas embebidas: ${ok}/${faltan.length} (pensum ${pensumId}).`);
+}
+
+// Mínimo para dar una materia por ganada. Es el MISMO valor con el que el estudio pinta la nota en
+// rojo (`configuracion.nota_minima`, editable en /configuracion): si el filtro de extracción y el
+// panel usaran umbrales distintos, el asesor vería una regla y el sistema aplicaría otra. Ante
+// cualquier fallo de lectura se cae al valor por defecto en vez de romper el pipeline.
+async function leerNotaMinima(supabase: ReturnType<typeof crearClienteServicio>): Promise<number> {
+  try {
+    const { data } = await supabase
+      .from("configuracion")
+      .select("nota_minima")
+      .eq("id", 1)
+      .maybeSingle();
+    // PostgREST devuelve numeric como string.
+    const valor = Number((data as { nota_minima: number | string | null } | null)?.nota_minima);
+    return Number.isFinite(valor) ? valor : NOTA_MINIMA_APROBACION;
+  } catch (e) {
+    console.warn("[extraccion] No se pudo leer configuracion.nota_minima; se usa el valor por defecto:", e);
+    return NOTA_MINIMA_APROBACION;
+  }
 }
 
 // FASE 7 (dedup): busca un caso ANTERIOR que haya procesado este mismo documento (mismo hash) y, si

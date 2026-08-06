@@ -1,7 +1,10 @@
 import { SenaParser } from "./sena-parser";
+import { SeguimientoPensumParser } from "./seguimiento-pensum-parser";
 import { ParserIA } from "./ia-parser";
 import { normalizar } from "./normalizador";
 import { evaluarCalidadTexto } from "./calidad";
+import { filtrarHomologables } from "./notas";
+import { NOTA_MINIMA_APROBACION } from "./escala-nota";
 import { extraerMateriasPorVision } from "@/lib/ia/extraer-materias";
 import type {
   MateriaExtraida,
@@ -21,6 +24,7 @@ export type {
 };
 
 const parserSena = new SenaParser();
+const parserSeguimiento = new SeguimientoPensumParser();
 const parserIA = new ParserIA();
 
 export function detectarInstitucion(institucionOrigen: string): TipoInstitucion {
@@ -73,10 +77,17 @@ async function rescatarConIA(
   }
 }
 
+export type OpcionesExtraccion = {
+  /** Mínimo para dar una materia por ganada (`configuracion.nota_minima`). Solo aplica al camino
+   *  universitario: lo que no se ganó no se puede homologar. */
+  notaMinima?: number;
+};
+
 export async function extraerUnidadesAcademicas(
   textoPdf: string,
   institucionOrigen: string,
   bytesPdf?: Uint8Array,
+  opciones?: OpcionesExtraccion,
 ): Promise<ResultadoExtraccion> {
   const tipoInstitucion = detectarInstitucion(institucionOrigen);
   const extractor = seleccionarExtractor(tipoInstitucion);
@@ -149,8 +160,43 @@ export async function extraerUnidadesAcademicas(
     };
   }
 
-  const unidades = await extractor.extraer(textoPdf, bytesPdf);
-  return { unidades, tipoInstitucion, metodo: extractor.nombre };
+  // Camino UNIVERSITARIO. Antes de gastar un token: el reporte "SEGUIMIENTO PENSUM GENERAL POR
+  // ESTUDIANTE" (el formato más frecuente en el panel después del SENA) se lee entero por
+  // coordenadas, sin IA, y devuelve SOLO lo que el estudiante cursó, con su nota.
+  const notaMinima = opciones?.notaMinima ?? NOTA_MINIMA_APROBACION;
+  const seguimiento = await parserSeguimiento.extraerConDiagnostico(textoPdf, bytesPdf);
+  if (seguimiento.detectado) {
+    if (seguimiento.unidades.length > 0) {
+      return {
+        unidades: filtrarHomologables(seguimiento.unidades, notaMinima),
+        tipoInstitucion,
+        metodo: parserSeguimiento.nombre,
+      };
+    }
+
+    // Formato reconocido y sin materias: si tampoco hay filas cursadas, el reporte dice la verdad
+    // —el estudiante no ha cursado nada— y el caso queda vacío a propósito. Mandarlo al ParserIA
+    // solo traería de vuelta el plan completo sin notas, que es justo lo que no queremos.
+    if (seguimiento.cursadas === 0) {
+      console.warn(
+        `[extraccion] SeguimientoPensumParser: el reporte lista ${seguimiento.filas} fila(s) del plan y ninguna cursada; el caso queda sin materias de origen.`,
+      );
+      return { unidades: [], tipoInstitucion, metodo: parserSeguimiento.nombre };
+    }
+
+    // Hay filas cursadas pero no se les pudo leer la nota: eso NO es un documento vacío, es una
+    // lectura rota (¿cambió el formato?). Se cae al ParserIA en vez de tragarse la pérdida.
+    console.warn(
+      `[extraccion] SeguimientoPensumParser: ${seguimiento.cursadas} fila(s) cursadas y ninguna nota legible; se intenta con ParserIA.`,
+    );
+  }
+
+  const unidades = filtrarHomologables(await extractor.extraer(textoPdf, bytesPdf), notaMinima);
+  return {
+    unidades,
+    tipoInstitucion,
+    metodo: seguimiento.detectado ? `${parserSeguimiento.nombre}→${extractor.nombre}` : extractor.nombre,
+  };
 }
 
 // Extrae y normaliza: el resultado usa UnidadAcademicaNormalizada con estructura uniforme.
@@ -159,8 +205,9 @@ export async function extraerYNormalizar(
   textoPdf: string,
   institucionOrigen: string,
   bytesPdf?: Uint8Array,
+  opciones?: OpcionesExtraccion,
 ): Promise<ResultadoNormalizado> {
-  const crudo = await extraerUnidadesAcademicas(textoPdf, institucionOrigen, bytesPdf);
+  const crudo = await extraerUnidadesAcademicas(textoPdf, institucionOrigen, bytesPdf, opciones);
   const normalizadas = normalizar(crudo.unidades);
 
   console.log(

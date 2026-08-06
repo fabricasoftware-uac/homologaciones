@@ -18,8 +18,15 @@ const RE_CORRUPTOS = new RegExp(
   "gu",
 );
 
+// Relleno de tablas: corridas de asteriscos, guiones o puntos con las que muchos reportes marcan una
+// celda VACÍA ("****", "-----", "......"). Es estructura del documento, no extracción rota, pero al
+// medir cuenta como "no letra": en un reporte de seguimiento de pensum real son 5166 caracteres que
+// hunden la proporción de letras al 36% —por debajo del umbral— y mandaban a OCR por visión un PDF
+// con capa de texto perfecta. Se descuenta ANTES de medir.
+const RELLENO_TABULAR = /([*.\-_])\1{2,}/g;
+
 export function evaluarCalidadTexto(texto: string): CalidadTexto {
-  const t = texto.trim();
+  const t = texto.replace(RELLENO_TABULAR, " ").trim();
   if (t.length < MIN_CHARS) {
     return { usable: false, motivo: `muy corto (${t.length} chars)` };
   }

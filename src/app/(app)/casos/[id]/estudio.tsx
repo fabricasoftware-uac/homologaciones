@@ -34,6 +34,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import type { EstadoVinculo } from "@/types";
+import { notaANumero } from "@/lib/extraccion/escala-nota";
 import {
   vincular,
   desvincular,
@@ -105,17 +106,8 @@ function colorSimilitud(similitud: number): string {
 // Umbral fijo de confianza para la confirmación en lote (las sugerencias "seguras" de la IA).
 const UMBRAL_LOTE = 90;
 
-// Convierte la nota de origen (texto libre) a número en escala 0–5 cuando se puede. Acepta coma o
-// punto decimal; descarta lo que no sea numérico ("APROBADO", "A", vacío) devolviendo null. Si la
-// nota viniera en escala 0–100, la baja a 0–5.
-function parseNota(texto: string | null): number | null {
-  if (!texto) return null;
-  const limpio = texto.replace(",", ".").replace(/[^\d.]/g, "");
-  if (!limpio) return null;
-  const n = Number(limpio);
-  if (!Number.isFinite(n)) return null;
-  return n > 5 && n <= 100 ? n / 20 : n;
-}
+// La conversión de la nota a número vive en @/lib/extraccion/escala-nota (notaANumero): es la MISMA
+// que usa el filtro de extracción, para que el panel y el pipeline no puedan entender "3.0" distinto.
 
 function agrupar<T extends { semestre: number | null }>(items: T[]): [number, T[]][] {
   const mapa = new Map<number, T[]>();
@@ -681,9 +673,10 @@ export function EstudioHomologacion({
                 // Avisos académicos: nota por debajo del mínimo, o destino con más créditos que el
                 // origen (se estaría homologando una materia "más pesada" con una más liviana). El
                 // aviso de créditos solo tiene sentido en el vínculo 1:1.
-                const notaNum = parseNota(m.nota);
+                const notaNum = notaANumero(m.nota);
+                const notaBaja = notaNum != null && notaNum < notaMinima;
                 const avisos: string[] = [];
-                if (notaNum != null && notaNum < notaMinima) {
+                if (notaBaja) {
                   avisos.push(`Nota ${notaNum} (mín. ${notaMinima})`);
                 }
                 const unicoDest = vs.length === 1 ? asignaturaPorId.get(vs[0].asignaturaId) : null;
@@ -699,6 +692,7 @@ export function EstudioHomologacion({
                     creditos={m.creditos}
                     horas={m.horas}
                     nota={m.nota}
+                    notaBaja={notaBaja}
                     alerta={avisos.length > 0 ? avisos.join(" · ") : undefined}
                     estado={algunAprobado ? "aprobado" : (vs[0]?.estado ?? null)}
                     vinculadoCon={
@@ -1137,6 +1131,7 @@ function Tarjeta({
   creditos,
   horas,
   nota,
+  notaBaja,
   similitud,
   razon,
   alerta,
@@ -1156,6 +1151,9 @@ function Tarjeta({
   // Horas de formación (SENA): si vienen, el chip muestra la conversión "N h ≈ M cr".
   horas?: number | null;
   nota: string | null;
+  // La nota queda por debajo del mínimo de homologación: el chip se pinta en rojo para que se lea
+  // de un vistazo al bajar por la columna, sin tener que abrir cada tarjeta.
+  notaBaja?: boolean;
   similitud?: number;
   razon?: string;
   alerta?: string;
@@ -1286,8 +1284,17 @@ function Tarjeta({
             {horas != null ? `${horas} h ≈ ${creditos} cr` : `${creditos} CR`}
           </span>
         )}
+        {/* La NOTA es el dato con el que el asesor decide: va siempre visible en la tarjeta y con
+            color (verde = pasa el mínimo, rojo = no lo pasa) para no tener que abrir el PDF. */}
         {nota && (
-          <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded ml-auto">
+          <span
+            className={clsx(
+              "px-1.5 py-0.5 rounded ml-auto font-bold border",
+              notaBaja
+                ? "text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/15 border-rose-200 dark:border-rose-500/30"
+                : "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/15 border-emerald-200 dark:border-emerald-500/30",
+            )}
+          >
             Nota {nota}
           </span>
         )}
