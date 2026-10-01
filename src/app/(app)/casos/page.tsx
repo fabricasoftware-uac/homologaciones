@@ -11,6 +11,7 @@ import {
   IconChevronLeft as ChevronLeft,
   IconChevronRight as ChevronRight,
   IconDownload as Download,
+  IconFilePlus as FilePlus,
   type Icon as LucideIcon,
 } from "@tabler/icons-react";
 
@@ -151,6 +152,13 @@ export default async function PaginaCasos({
           <div className="flex flex-wrap items-center gap-2">
             <BuscadorCasos />
             <FiltroFechas />
+            <Link
+              href="/casos/nuevo"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-marca text-marca-fg hover:bg-marca-hover transition-colors shadow-sm shrink-0"
+            >
+              <FilePlus className="w-4 h-4" />
+              Nuevo caso
+            </Link>
           </div>
         }
       />

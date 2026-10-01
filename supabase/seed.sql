@@ -84,3 +84,158 @@ cross join (values
   ('Electiva VI (Especializada)', 3, 9),
   ('Inteligencia Social y Pensamiento Crítico', 2, 9)
 ) as materia (nombre, creditos, semestre);
+
+-- ============================================================================
+-- Usuarios semilla para cada uno de los 4 roles del sistema
+-- Contraseña universal: Uniautonoma2026!
+-- ============================================================================
+
+-- 1. Insertar cuentas en auth.users
+insert into auth.users (
+  instance_id,
+  id,
+  aud,
+  role,
+  email,
+  encrypted_password,
+  email_confirmed_at,
+  raw_app_meta_data,
+  raw_user_meta_data,
+  created_at,
+  updated_at,
+  confirmation_token,
+  recovery_token,
+  email_change,
+  email_change_token_new,
+  email_change_token_current,
+  phone_change,
+  phone_change_token,
+  reauthentication_token
+) values
+  -- 1) Administrador (Vicerrectoría)
+  (
+    '00000000-0000-0000-0000-000000000000',
+    'a0000000-0000-0000-0000-000000000001',
+    'authenticated',
+    'authenticated',
+    'admin@uniautonoma.edu.co',
+    crypt('Uniautonoma2026!', gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}',
+    '{"nombre":"Sebastián Toro Vélez (Vicerrector)"}',
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    ''
+  ),
+  -- 2) Coordinador de Programa (rol: asesor)
+  (
+    '00000000-0000-0000-0000-000000000000',
+    'a0000000-0000-0000-0000-000000000002',
+    'authenticated',
+    'authenticated',
+    'coordinador@uniautonoma.edu.co',
+    crypt('Uniautonoma2026!', gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}',
+    '{"nombre":"Ing. Carlos Mendoza (Coordinador)"}',
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    ''
+  ),
+  -- 3) Verificador de Registro Académico
+  (
+    '00000000-0000-0000-0000-000000000000',
+    'a0000000-0000-0000-0000-000000000003',
+    'authenticated',
+    'authenticated',
+    'verificador@uniautonoma.edu.co',
+    crypt('Uniautonoma2026!', gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}',
+    '{"nombre":"Saide López (Registro Académico)"}',
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    ''
+  ),
+  -- 4) Estudiante / Aspirante
+  (
+    '00000000-0000-0000-0000-000000000000',
+    'a0000000-0000-0000-0000-000000000004',
+    'authenticated',
+    'authenticated',
+    'estudiante@uniautonoma.edu.co',
+    crypt('Uniautonoma2026!', gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}',
+    '{"nombre":"Jhon Alexander Urbano Pardo"}',
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    ''
+  )
+on conflict (id) do update set
+  encrypted_password = excluded.encrypted_password,
+  raw_user_meta_data = excluded.raw_user_meta_data,
+  email_change = excluded.email_change,
+  email_change_token_new = excluded.email_change_token_new,
+  email_change_token_current = excluded.email_change_token_current,
+  phone_change = excluded.phone_change,
+  phone_change_token = excluded.phone_change_token,
+  reauthentication_token = excluded.reauthentication_token;
+
+-- 2. Insertar identidades en auth.identities
+insert into auth.identities (
+  id,
+  user_id,
+  provider_id,
+  identity_data,
+  provider,
+  last_sign_in_at,
+  created_at,
+  updated_at
+) values
+  ('a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', '{"sub":"a0000000-0000-0000-0000-000000000001","email":"admin@uniautonoma.edu.co"}'::jsonb, 'email', now(), now(), now()),
+  ('a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', '{"sub":"a0000000-0000-0000-0000-000000000002","email":"coordinador@uniautonoma.edu.co"}'::jsonb, 'email', now(), now(), now()),
+  ('a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', '{"sub":"a0000000-0000-0000-0000-000000000003","email":"verificador@uniautonoma.edu.co"}'::jsonb, 'email', now(), now(), now()),
+  ('a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000004', '{"sub":"a0000000-0000-0000-0000-000000000004","email":"estudiante@uniautonoma.edu.co"}'::jsonb, 'email', now(), now(), now())
+on conflict (provider_id, provider) do nothing;
+
+-- 3. Asegurar asignación exacta de roles y nombres en public.perfil
+insert into public.perfil (id, nombre, rol)
+values
+  ('a0000000-0000-0000-0000-000000000001', 'Sebastián Toro Vélez (Vicerrector)', 'admin'),
+  ('a0000000-0000-0000-0000-000000000002', 'Ing. Carlos Mendoza (Coordinador)', 'asesor'),
+  ('a0000000-0000-0000-0000-000000000003', 'Saide López (Registro Académico)', 'verificador'),
+  ('a0000000-0000-0000-0000-000000000004', 'Jhon Alexander Urbano Pardo', 'estudiante')
+on conflict (id) do update set
+  nombre = excluded.nombre,
+  rol = excluded.rol;
+
+

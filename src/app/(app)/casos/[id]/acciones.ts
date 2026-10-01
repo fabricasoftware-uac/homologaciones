@@ -187,22 +187,31 @@ export async function finalizarCaso(formData: FormData) {
   const semestreSugerido = Number.isInteger(semestre) && semestre > 0 ? semestre : null;
   const nota = String(formData.get("nota") ?? "").trim();
   const notaInterna = String(formData.get("notaInterna") ?? "").trim();
+  const numeroResolucion = String(formData.get("numeroResolucion") ?? "").trim();
+  const periodoMatricula = String(formData.get("periodoMatricula") ?? "").trim();
+  const fechaLimitePago = String(formData.get("fechaLimitePago") ?? "").trim();
 
   const supabase = crearClienteServidor();
   // Auditoría: dejamos constancia de QUIÉN cerró el caso y CUÁNDO (decidido_por / decidido_en).
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  const updatePayload: Record<string, unknown> = {
+    estado: veredicto,
+    semestre_sugerido: semestreSugerido,
+    nota_admin: nota || null,
+    nota_interna: notaInterna || null,
+    decidido_en: new Date().toISOString(),
+    decidido_por: user?.id ?? null,
+  };
+  if (numeroResolucion) updatePayload.numero_resolucion = numeroResolucion;
+  if (periodoMatricula) updatePayload.periodo_matricula = periodoMatricula;
+  if (fechaLimitePago) updatePayload.fecha_limite_pago = fechaLimitePago;
+
   await supabase
     .from("caso")
-    .update({
-      estado: veredicto,
-      semestre_sugerido: semestreSugerido,
-      nota_admin: nota || null,
-      nota_interna: notaInterna || null,
-      decidido_en: new Date().toISOString(),
-      decidido_por: user?.id ?? null,
-    })
+    .update(updatePayload)
     .eq("id", casoId);
 
   // Avisamos al estudiante por correo. Es best-effort: el veredicto ya quedó guardado, así que si
@@ -457,3 +466,32 @@ export async function guardarNota(formData: FormData) {
 
   revalidatePath(`/casos/${casoId}`);
 }
+
+// Permite guardar o ajustar los datos específicos de la Resolución Oficial (número, periodo, folios, fecha pago)
+export async function guardarDatosResolucion(formData: FormData) {
+  const casoId = String(formData.get("casoId") ?? "");
+  if (!casoId) return;
+
+  const numeroResolucion = String(formData.get("numeroResolucion") ?? "").trim();
+  const periodoMatricula = String(formData.get("periodoMatricula") ?? "").trim();
+  const fechaLimitePago = String(formData.get("fechaLimitePago") ?? "").trim();
+  const foliosSolicitud = Number(formData.get("foliosSolicitud")) || null;
+  const foliosCertificado = Number(formData.get("foliosCertificado")) || null;
+  const foliosContenidos = Number(formData.get("foliosContenidos")) || null;
+
+  const supabase = crearClienteServidor();
+  await supabase
+    .from("caso")
+    .update({
+      numero_resolucion: numeroResolucion || null,
+      periodo_matricula: periodoMatricula || null,
+      fecha_limite_pago: fechaLimitePago || null,
+      folios_solicitud: foliosSolicitud,
+      folios_certificado: foliosCertificado,
+      folios_contenidos: foliosContenidos,
+    })
+    .eq("id", casoId);
+
+  revalidatePath(`/casos/${casoId}`);
+}
+

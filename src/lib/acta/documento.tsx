@@ -1,3 +1,5 @@
+import React from "react";
+import path from "node:path";
 import {
   Document,
   Page,
@@ -8,263 +10,632 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 
-// Acta de homologación en PDF: el entregable formal que recibe el estudiante cuando su caso queda
-// APROBADO. Se genera bajo demanda (no se almacena) desde las rutas /casos/[id]/acta (admin) y
-// /seguimiento/[token]/acta (estudiante). Usa @react-pdf/renderer, que trae su propio motor de
-// layout, por eso está externalizado en next.config.mjs.
+// ── FORMATO OFICIAL DE RESOLUCIÓN DE HOMOLOGACIÓN ──
+// Vicerrectoría Académica · Corporación Universitaria Autónoma del Cauca
+// Replicado fielmente del formato institucional oficial:
+// FORMATO RESOL. HOMOLOGACIONES - VICERRECTORÍA ACADÉMICA.docx
 
-export type FilaActa = {
-  materia: string;
-  asignatura: string;
+export type FilaHomologada = {
+  materiaOrigen: string;
+  codigoUniautonoma: string;
+  nombreAsignatura: string;
+  semestre: number;
   creditos: number;
+  intensidadHoraria: string | number;
+  tipo: string;
+  calificacion: string;
 };
 
-export type DatosActa = {
-  institucion: string; // marca (universidad de destino)
-  marcaColor: string; // color de acento del acta
-  folio: string; // identificador del caso (token corto)
-  fecha: string; // fecha de emisión legible
-  solicitante: string;
+export type FilaCursoMatricula = {
+  no: number;
+  codigo: string;
+  curso: string;
+  semestre: number;
+  creditos: number;
+  intensidadHoraria: string | number;
+  tipo: string;
+};
+
+export type DatosResolucion = {
+  numeroResolucion: string;
+  fechaResolucionEncabezado: string; // ej. "(03 de febrero de 2026)"
+  fechaLegalCierre: string; // ej. "Popayán, a los tres (03) días del mes de febrero de dos mil veintiséis (2026)"
+  fechaNotificacion: string;
+  solicitanteNombre: string;
+  solicitanteCedula: string;
+  solicitanteLugarExp: string;
   institucionOrigen: string;
-  carrera: string;
-  semestre: number | null;
-  nota: string | null;
-  homologaciones: FilaActa[];
-  // QR (data URL PNG) + URL legible para verificar la autenticidad del acta. Opcionales.
-  qr: string | null;
-  urlVerificacion: string | null;
+  programaOrigen: string;
+  carreraDestino: string;
+  resolucionMen: string;
+  homologaciones: FilaHomologada[];
+  foliosSolicitud: number;
+  foliosCertificado: number;
+  foliosContenidos: number | null;
+  periodoMatricula: string;
+  cursosMatricula: FilaCursoMatricula[];
+  fechaLimitePago: string;
+  coordinadorNombre: string;
+  logoPath?: string;
+  vigiladoPath?: string;
 };
 
-function crearEstilos(acento: string) {
-  return StyleSheet.create({
-    pagina: {
-      paddingTop: 48,
-      paddingBottom: 56,
-      paddingHorizontal: 48,
-      fontSize: 10,
-      fontFamily: "Helvetica",
-      color: "#0f172a",
-    },
-    barra: { height: 6, backgroundColor: acento, marginBottom: 20, borderRadius: 2 },
-    institucion: { fontSize: 16, fontFamily: "Helvetica-Bold", color: "#0f172a" },
-    titulo: {
-      fontSize: 13,
-      fontFamily: "Helvetica-Bold",
-      color: acento,
-      marginTop: 2,
-      letterSpacing: 1,
-    },
-    metaFila: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
-    metaTexto: { fontSize: 9, color: "#64748b" },
-    intro: { marginTop: 22, fontSize: 10, lineHeight: 1.5, color: "#334155" },
-    negrita: { fontFamily: "Helvetica-Bold", color: "#0f172a" },
-    seccionTitulo: {
-      marginTop: 22,
-      marginBottom: 8,
-      fontSize: 9,
-      fontFamily: "Helvetica-Bold",
-      color: "#64748b",
-      textTransform: "uppercase",
-      letterSpacing: 1,
-    },
-    datosCaja: {
-      backgroundColor: "#f8fafc",
-      borderWidth: 1,
-      borderColor: "#e2e8f0",
-      borderRadius: 6,
-      padding: 12,
-    },
-    datoFila: { flexDirection: "row", marginBottom: 4 },
-    datoEtiqueta: { width: 130, color: "#64748b" },
-    datoValor: { flex: 1, fontFamily: "Helvetica-Bold", color: "#0f172a" },
-    tablaEncabezado: {
-      flexDirection: "row",
-      backgroundColor: acento,
-      color: "#ffffff",
-      paddingVertical: 6,
-      paddingHorizontal: 8,
-      borderTopLeftRadius: 4,
-      borderTopRightRadius: 4,
-    },
-    th: { fontSize: 8.5, fontFamily: "Helvetica-Bold", color: "#ffffff" },
-    fila: {
-      flexDirection: "row",
-      paddingVertical: 6,
-      paddingHorizontal: 8,
-      borderBottomWidth: 1,
-      borderBottomColor: "#e2e8f0",
-    },
-    filaPar: { backgroundColor: "#f8fafc" },
-    celda: { fontSize: 9.5, color: "#334155" },
-    colMateria: { width: "44%", paddingRight: 6 },
-    colAsignatura: { width: "44%", paddingRight: 6 },
-    colCreditos: { width: "12%", textAlign: "right" },
-    totalFila: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      marginTop: 10,
-      paddingTop: 8,
-      borderTopWidth: 1,
-      borderTopColor: "#cbd5e1",
-    },
-    semestreCaja: {
-      marginTop: 18,
-      padding: 12,
-      backgroundColor: "#f0fdf4",
-      borderWidth: 1,
-      borderColor: "#bbf7d0",
-      borderRadius: 6,
-      color: "#166534",
-      fontSize: 11,
-    },
-    notaCaja: {
-      marginTop: 16,
-      padding: 12,
-      backgroundColor: "#fffbeb",
-      borderWidth: 1,
-      borderColor: "#fde68a",
-      borderRadius: 6,
-      color: "#78350f",
-      fontSize: 9.5,
-      lineHeight: 1.5,
-    },
-    verificacion: {
-      marginTop: 22,
-      flexDirection: "row",
-      alignItems: "center",
-      padding: 12,
-      borderWidth: 1,
-      borderColor: "#e2e8f0",
-      borderRadius: 6,
-      backgroundColor: "#f8fafc",
-    },
-    qrImg: { width: 64, height: 64, marginRight: 12 },
-    verifTitulo: { fontSize: 9, fontFamily: "Helvetica-Bold", color: "#0f172a", marginBottom: 2 },
-    verifTexto: { fontSize: 8, color: "#64748b", lineHeight: 1.4 },
-    pie: {
-      position: "absolute",
-      bottom: 28,
-      left: 48,
-      right: 48,
-      fontSize: 8,
-      color: "#94a3b8",
-      textAlign: "center",
-      borderTopWidth: 1,
-      borderTopColor: "#e2e8f0",
-      paddingTop: 8,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  pagina: {
+    paddingTop: 45,
+    paddingBottom: 55,
+    paddingLeft: 60,
+    paddingRight: 60,
+    fontSize: 9.5,
+    fontFamily: "Helvetica",
+    color: "#000000",
+    lineHeight: 1.35,
+  },
+  logoContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 15,
+  },
+  logoImg: {
+    width: 220,
+    height: 48,
+    objectFit: "contain",
+  },
+  vigiladoImg: {
+    width: 14,
+    height: 80,
+    objectFit: "contain",
+    position: "absolute",
+    right: -35,
+    top: 50,
+  },
+  headerContinuacion: {
+    position: "absolute",
+    top: 25,
+    left: 60,
+    right: 60,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    fontSize: 8,
+    color: "#475569",
+  },
+  footerInstitucional: {
+    position: "absolute",
+    bottom: 20,
+    left: 60,
+    right: 60,
+    fontSize: 6.8,
+    color: "#475569",
+    textAlign: "center",
+    lineHeight: 1.25,
+    borderTopWidth: 0.5,
+    borderTopColor: "#94a3b8",
+    paddingTop: 5,
+  },
+  tituloResolucion: {
+    fontSize: 10.5,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "center",
+    marginTop: 6,
+  },
+  fechaEncabezado: {
+    fontSize: 9.5,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  epigrafe: {
+    fontSize: 9.5,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "justify",
+    marginBottom: 12,
+    lineHeight: 1.3,
+  },
+  parrafoLegal: {
+    fontSize: 9.5,
+    textAlign: "justify",
+    marginBottom: 8,
+  },
+  considerandoTitulo: {
+    fontSize: 9.5,
+    fontFamily: "Helvetica-Bold",
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  resuelveTitulo: {
+    fontSize: 9.5,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "center",
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  articuloTitulo: {
+    fontSize: 9.5,
+    fontFamily: "Helvetica-Bold",
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  tabla: {
+    width: "100%",
+    borderWidth: 0.5,
+    borderColor: "#000000",
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  tablaFila: {
+    flexDirection: "row",
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#000000",
+    minHeight: 18,
+    alignItems: "center",
+  },
+  tablaFilaEncabezado: {
+    backgroundColor: "#f1f5f9",
+    fontFamily: "Helvetica-Bold",
+  },
+  tablaCelda: {
+    paddingVertical: 3,
+    paddingHorizontal: 3,
+    fontSize: 7.5,
+    borderRightWidth: 0.5,
+    borderRightColor: "#000000",
+  },
+  tablaCeldaSinBorde: {
+    paddingVertical: 3,
+    paddingHorizontal: 3,
+    fontSize: 7.5,
+  },
+  textoBold: {
+    fontFamily: "Helvetica-Bold",
+  },
+  textoCentro: {
+    textAlign: "center",
+  },
+  textoDerecha: {
+    textAlign: "right",
+  },
+  firmaBloque: {
+    marginTop: 25,
+    marginBottom: 15,
+  },
+  notificacionBloque: {
+    marginTop: 10,
+    fontSize: 8.5,
+    lineHeight: 1.3,
+  },
+});
 
-function DocumentoActa(datos: DatosActa) {
-  const s = crearEstilos(datos.marcaColor);
-  const totalCreditos = datos.homologaciones.reduce((suma, h) => suma + (h.creditos || 0), 0);
+function DocumentoResolucion(datos: DatosResolucion) {
+  const logoSrc = datos.logoPath || path.join(process.cwd(), "public/resolucion/logo-uniautonoma.png");
+  const totalCreditosHomologados = datos.homologaciones.reduce(
+    (acc, cur) => acc + (cur.creditos || 0),
+    0,
+  );
+  const totalFolios =
+    (datos.foliosSolicitud || 1) +
+    (datos.foliosCertificado || 0) +
+    (datos.foliosContenidos || 0);
+
+  const totalCursosMatricula = datos.cursosMatricula.length;
+  const totalCreditosMatricula = datos.cursosMatricula.reduce(
+    (acc, cur) => acc + (cur.creditos || 0),
+    0,
+  );
 
   return (
     <Document
-      title={`Acta de homologación · ${datos.solicitante}`}
-      author={datos.institucion}
+      title={`Resolución de Homologación · ${datos.solicitanteNombre}`}
+      author="Corporación Universitaria Autónoma del Cauca"
     >
-      <Page size="A4" style={s.pagina}>
-        <View style={s.barra} />
-
-        <Text style={s.institucion}>{datos.institucion}</Text>
-        <Text style={s.titulo}>ACTA DE HOMOLOGACIÓN</Text>
-        <View style={s.metaFila}>
-          <Text style={s.metaTexto}>Folio: {datos.folio}</Text>
-          <Text style={s.metaTexto}>Fecha de emisión: {datos.fecha}</Text>
+      <Page size="LETTER" style={styles.pagina}>
+        {/* Encabezado dinámico para páginas de continuación (página 2 en adelante) */}
+        <View style={styles.headerContinuacion} fixed>
+          <Text
+            render={({ pageNumber }) =>
+              pageNumber > 1
+                ? `Continuación Resolución No. ${datos.numeroResolucion || "XXX"} del ${datos.fechaResolucionEncabezado.replace(/[()]/g, "")}`
+                : ""
+            }
+          />
+          <Text
+            render={({ pageNumber, totalPages }) =>
+              pageNumber > 1 ? `Página ${pageNumber} de ${totalPages}` : ""
+            }
+          />
         </View>
 
-        <Text style={s.intro}>
-          Se hace constar que, una vez estudiado el historial académico presentado por{" "}
-          <Text style={s.negrita}>{datos.solicitante}</Text>, proveniente de{" "}
-          <Text style={s.negrita}>{datos.institucionOrigen}</Text>, se aprueba la homologación de las
-          asignaturas que se relacionan a continuación dentro del programa de{" "}
-          <Text style={s.negrita}>{datos.carrera}</Text>.
+        {/* Encabezado primera página: Logo institucional */}
+        <View style={styles.logoContainer}>
+          <Image src={logoSrc} style={styles.logoImg} />
+        </View>
+
+        {/* Título de la Resolución */}
+        <Text style={styles.tituloResolucion}>
+          RESOLUCIÓN No. {datos.numeroResolucion || "XXX"}
+        </Text>
+        <Text style={styles.fechaEncabezado}>
+          {datos.fechaResolucionEncabezado}
         </Text>
 
-        <Text style={s.seccionTitulo}>Datos del solicitante</Text>
-        <View style={s.datosCaja}>
-          <View style={s.datoFila}>
-            <Text style={s.datoEtiqueta}>Nombre</Text>
-            <Text style={s.datoValor}>{datos.solicitante}</Text>
-          </View>
-          <View style={s.datoFila}>
-            <Text style={s.datoEtiqueta}>Institución de origen</Text>
-            <Text style={s.datoValor}>{datos.institucionOrigen}</Text>
-          </View>
-          <View style={[s.datoFila, { marginBottom: 0 }]}>
-            <Text style={s.datoEtiqueta}>Programa de destino</Text>
-            <Text style={s.datoValor}>{datos.carrera}</Text>
-          </View>
-        </View>
-
-        <Text style={s.seccionTitulo}>
-          Asignaturas homologadas ({datos.homologaciones.length})
+        <Text style={styles.epigrafe}>
+          POR LA CUAL SE APRUEBA EL ESTUDIO DE HOMOLOGACIÓN DE LOS CURSOS
+          APROBADOS EN EL PROGRAMA, {datos.programaOrigen.toUpperCase()} DE LA{" "}
+          {datos.institucionOrigen.toUpperCase()}, SOLICITADOS POR{" "}
+          {datos.solicitanteNombre.toUpperCase()}, IDENTIFICADO CON CÉDULA DE
+          CIUDADANÍA No. {datos.solicitanteCedula || "—"}{" "}
+          {datos.solicitanteLugarExp ? `DE ${datos.solicitanteLugarExp.toUpperCase()}` : ""}.
         </Text>
-        <View>
-          <View style={s.tablaEncabezado}>
-            <Text style={[s.th, s.colMateria]}>Materia cursada (origen)</Text>
-            <Text style={[s.th, s.colAsignatura]}>Asignatura homologada</Text>
-            <Text style={[s.th, s.colCreditos]}>Créd.</Text>
-          </View>
-          {datos.homologaciones.map((h, i) => (
-            <View key={i} style={i % 2 === 1 ? [s.fila, s.filaPar] : s.fila} wrap={false}>
-              <Text style={[s.celda, s.colMateria]}>{h.materia}</Text>
-              <Text style={[s.celda, s.colAsignatura]}>{h.asignatura}</Text>
-              <Text style={[s.celda, s.colCreditos]}>{h.creditos || "—"}</Text>
-            </View>
-          ))}
-        </View>
-        <View style={s.totalFila}>
-          <Text style={[s.celda, s.negrita]}>Total de créditos homologados</Text>
-          <Text style={[s.celda, s.negrita]}>{totalCreditos}</Text>
-        </View>
 
-        {datos.semestre != null && (
-          <View style={s.semestreCaja}>
-            <Text>
-              Con base en lo homologado, el estudiante ingresa al{" "}
-              <Text style={{ fontFamily: "Helvetica-Bold" }}>semestre {datos.semestre}</Text> del
-              programa.
+        <Text style={styles.parrafoLegal}>
+          El suscrito Vicerrector Académico de la CORPORACIÓN UNIVERSITARIA
+          AUTÓNOMA DEL CAUCA, en uso de sus atribuciones reglamentarias en
+          especial las conferidas en el artículo 22 del Acuerdo 006 de 2016 de los
+          Estatutos institucionales y el artículo 57 del Acuerdo 005 de 2025. del
+          Reglamento estudiantil, y
+        </Text>
+
+        <Text style={styles.considerandoTitulo}>CONSIDERANDO:</Text>
+
+        <Text style={styles.parrafoLegal}>
+          Que la Coordinación del Programa de {datos.carreraDestino} realizó el
+          estudio de homologación de los cursos aprobados por{" "}
+          {datos.solicitanteNombre.toUpperCase()}, identificado con CÉDULA DE
+          CIUDADANÍA No. {datos.solicitanteCedula || "—"}{" "}
+          {datos.solicitanteLugarExp ? `DE ${datos.solicitanteLugarExp.toUpperCase()}` : ""}, en
+          la {datos.institucionOrigen.toUpperCase()};
+        </Text>
+
+        <Text style={styles.parrafoLegal}>
+          Que el Vicerrector Académico revisó los procedimientos aplicados y los
+          anexos allegados por {datos.solicitanteNombre.toUpperCase()}, para el
+          estudio y análisis de la homologación realizada por la Coordinación del
+          Programa {datos.carreraDestino}, con el correspondiente pensum vigente
+          del Programa de {datos.carreraDestino} aprobado mediante Resolución{" "}
+          {datos.resolucionMen || "expedida por el Ministerio de Educación Nacional"};
+        </Text>
+
+        <Text style={styles.parrafoLegal}>
+          Que para los casos de corrección de errores de digitación numéricos o en
+          nombres, el Código de procedimiento administrativo y de lo contencioso
+          administrativo, Ley 1437 de 2011 prevé la expedición de nuevos actos
+          administrativos, sin que ello altere el sentido material de la decisión
+          o la reactivación de términos para ejercer la vía administrativa,
+          decisión que deberá ser notificada al interesado;
+        </Text>
+
+        <Text style={styles.resuelveTitulo}>RESUELVE:</Text>
+
+        <Text style={styles.parrafoLegal}>
+          <Text style={styles.textoBold}>ARTICULO 1°.</Text> Aprobar el estudio de
+          homologación presentado por {datos.solicitanteNombre.toUpperCase()},
+          identificado con la cédula de ciudadanía No.{" "}
+          {datos.solicitanteCedula || "—"}{" "}
+          {datos.solicitanteLugarExp ? `DE ${datos.solicitanteLugarExp.toUpperCase()}` : ""}, de
+          la siguiente manera:
+        </Text>
+
+        <Text style={{ fontSize: 8.5, marginBottom: 4 }}>
+          Entiéndase: CR: Crédito Académico, IH: Intensidad Horaria: Tipo: T:
+          Teórico, P: Práctico; TP: Teórico Práctico, NA: No Aplica.
+        </Text>
+
+        {/* TABLA ARTÍCULO 1°: Cursos homologados */}
+        <View style={styles.tabla}>
+          {/* Fila 1: Programa de origen */}
+          <View style={styles.tablaFila}>
+            <Text style={[styles.tablaCelda, styles.textoBold, { width: "30%" }]}>
+              PROGRAMA DE ORIGEN:
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, { width: "70%" }]}>
+              {datos.programaOrigen.toUpperCase()}
             </Text>
           </View>
-        )}
 
-        {datos.nota ? (
-          <View style={s.notaCaja}>
-            <Text style={{ fontFamily: "Helvetica-Bold", marginBottom: 3 }}>Observaciones</Text>
-            <Text>{datos.nota}</Text>
+          {/* Fila 2: Institución de origen */}
+          <View style={styles.tablaFila}>
+            <Text style={[styles.tablaCelda, styles.textoBold, { width: "30%" }]}>
+              INSTITUCIÓN DE ORIGEN:
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, { width: "70%" }]}>
+              {datos.institucionOrigen.toUpperCase()}
+            </Text>
           </View>
-        ) : null}
 
-        {datos.qr ? (
-          <View style={s.verificacion} wrap={false}>
-            {/* eslint-disable-next-line jsx-a11y/alt-text */}
-            <Image src={datos.qr} style={s.qrImg} />
-            <View style={{ flex: 1 }}>
-              <Text style={s.verifTitulo}>Verificación de autenticidad</Text>
-              <Text style={s.verifTexto}>
-                Escanea el código QR para confirmar que esta acta es auténtica
-                {datos.urlVerificacion ? ", o visita:" : "."}
+          {/* Fila 3: Banner de título */}
+          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]}>
+            <Text
+              style={[
+                styles.tablaCeldaSinBorde,
+                styles.textoBold,
+                styles.textoCentro,
+                { width: "100%", fontSize: 8 },
+              ]}
+            >
+              CURSOS ACADÉMICOS HOMOLOGADOS
+            </Text>
+          </View>
+
+          {/* Fila 4: Encabezados de columna */}
+          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]}>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "26%" }]}>
+              NOMBRE CURSO INSTITUCIÓN DE ORIGEN
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "12%" }]}>
+              CÓDIGO CURSO UNIAUTONOMA
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "26%" }]}>
+              NOMBRE CURSO ACADÉMICO UNIAUTONOMA
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "6%" }]}>
+              SEM.
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "6%" }]}>
+              CR
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "7%" }]}>
+              IH
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "6%" }]}>
+              TIPO
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "11%" }]}>
+              CALIFICACIÓN
+            </Text>
+          </View>
+
+          {/* Filas de datos homologados */}
+          {datos.homologaciones.map((h, i) => (
+            <View key={i} style={styles.tablaFila} wrap={false}>
+              <Text style={[styles.tablaCelda, { width: "26%" }]}>{h.materiaOrigen}</Text>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "12%" }]}>
+                {h.codigoUniautonoma || "—"}
               </Text>
-              {datos.urlVerificacion ? (
-                <Text style={[s.verifTexto, { color: datos.marcaColor }]}>{datos.urlVerificacion}</Text>
-              ) : null}
+              <Text style={[styles.tablaCelda, { width: "26%" }]}>{h.nombreAsignatura}</Text>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "6%" }]}>
+                {h.semestre || "—"}
+              </Text>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "6%" }]}>
+                {h.creditos || "—"}
+              </Text>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "7%" }]}>
+                {h.intensidadHoraria || "—"}
+              </Text>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "6%" }]}>
+                {h.tipo || "TP"}
+              </Text>
+              <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "11%" }]}>
+                {h.calificacion || "Aprobado"}
+              </Text>
             </View>
-          </View>
-        ) : null}
+          ))}
 
-        <Text style={s.pie} fixed>
-          Documento generado automáticamente por el sistema de homologaciones de {datos.institucion}.
-          Este resultado es válido como constancia del estudio realizado.
+          {/* Totales Artículo 1° */}
+          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
+            <Text style={[styles.tablaCelda, styles.textoBold, { width: "64%" }]}>
+              TOTAL CURSOS HOMOLOGADOS:
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "36%" }]}>
+              {datos.homologaciones.length}
+            </Text>
+          </View>
+          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
+            <Text style={[styles.tablaCelda, styles.textoBold, { width: "64%" }]}>
+              TOTAL CRÉDITOS HOMOLOGADOS:
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "36%" }]}>
+              {totalCreditosHomologados}
+            </Text>
+          </View>
+        </View>
+
+        {/* ARTÍCULO 2°: Documentos analizados */}
+        <Text style={styles.articuloTitulo}>
+          ARTICULO 2°. Para realizar este estudio se analizaron los siguientes
+          documentos, los cuales reposarán en la hoja de vida del
+          aspirante/estudiante:
         </Text>
+
+        <View style={styles.tabla}>
+          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]}>
+            <Text style={[styles.tablaCelda, styles.textoBold, { width: "80%" }]}>
+              DOCUMENTO
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "20%" }]}>
+              N0. DE FOLIOS
+            </Text>
+          </View>
+
+          <View style={styles.tablaFila} wrap={false}>
+            <Text style={[styles.tablaCelda, { width: "80%" }]}>
+              Formato de solicitud del aspirante/estudiante.
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "20%" }]}>
+              {datos.foliosSolicitud || 1}
+            </Text>
+          </View>
+
+          <View style={styles.tablaFila} wrap={false}>
+            <Text style={[styles.tablaCelda, { width: "80%" }]}>
+              Certificado oficial de calificaciones, en el cual deben figurar todas
+              las asignaturas cursadas por estudiantes, la intensidad horaria
+              total, los créditos académicos y la calificación de cada una de
+              ellas.
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "20%" }]}>
+              {datos.foliosCertificado || "—"}
+            </Text>
+          </View>
+
+          <View style={styles.tablaFila} wrap={false}>
+            <Text style={[styles.tablaCelda, { width: "80%" }]}>
+              Documento debidamente refrendado en donde conste el contenido
+              programático de las asignaturas cursadas y aprobadas.
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "20%" }]}>
+              {datos.foliosContenidos ? datos.foliosContenidos : "—"}
+            </Text>
+          </View>
+
+          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
+            <Text style={[styles.tablaCelda, styles.textoBold, { width: "80%" }]}>
+              TOTAL FOLIOS
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "20%" }]}>
+              {totalFolios}
+            </Text>
+          </View>
+        </View>
+
+        {/* ARTÍCULO 3°: Cursos para el primer período */}
+        <Text style={styles.articuloTitulo}>
+          ARTICULO 3°. Se proyecta la matrícula de los siguientes cursos para el
+          primer período académico de {datos.periodoMatricula || "2026 (1P-2026)"}:
+        </Text>
+
+        <View style={styles.tabla}>
+          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]}>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "6%" }]}>
+              NO
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "18%" }]}>
+              CÓDIGO DEL CURSO
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "44%" }]}>
+              CURSO
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "8%" }]}>
+              SEM.
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "8%" }]}>
+              CR
+            </Text>
+            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "8%" }]}>
+              IH
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "8%" }]}>
+              TP
+            </Text>
+          </View>
+
+          {datos.cursosMatricula.map((c, i) => (
+            <View key={i} style={styles.tablaFila} wrap={false}>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "6%" }]}>
+                {c.no || i + 1}
+              </Text>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "18%" }]}>
+                {c.codigo || "—"}
+              </Text>
+              <Text style={[styles.tablaCelda, { width: "44%" }]}>{c.curso}</Text>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "8%" }]}>
+                {c.semestre || "—"}
+              </Text>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "8%" }]}>
+                {c.creditos || "—"}
+              </Text>
+              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "8%" }]}>
+                {c.intensidadHoraria || "—"}
+              </Text>
+              <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "8%" }]}>
+                {c.tipo || "TP"}
+              </Text>
+            </View>
+          ))}
+
+          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
+            <Text style={[styles.tablaCelda, styles.textoBold, { width: "68%" }]}>
+              TOTAL CURSOS
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "32%" }]}>
+              {totalCursosMatricula}
+            </Text>
+          </View>
+          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
+            <Text style={[styles.tablaCelda, styles.textoBold, { width: "68%" }]}>
+              TOTAL CREDITOS
+            </Text>
+            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "32%" }]}>
+              {totalCreditosMatricula}
+            </Text>
+          </View>
+        </View>
+
+        {/* PARÁGRAFOS Y CIERRE */}
+        <Text style={styles.parrafoLegal}>
+          <Text style={styles.textoBold}>PARÁGRAFO 1.</Text> Para legalizar el
+          proceso de matrícula tanto académica como financiera, deberá cancelar
+          los derechos pecuniarios correspondientes antes del{" "}
+          {datos.fechaLimitePago || "fijado en el calendario institucional"}.
+        </Text>
+
+        <Text style={styles.parrafoLegal}>
+          <Text style={styles.textoBold}>PARÁGRAFO 2.</Text> El aspirante/estudiante
+          tendrá derecho a solicitar la revisión del estudio, para lo cual tendrá
+          un plazo máximo de ocho (8) días calendario siguientes a su
+          notificación, siempre y cuando esta revisión se refiera a la
+          documentación entregada inicialmente. Cuando el aspirante/estudiante
+          desee incorporar nuevos contenidos, se debe solicitar y realizar un
+          nuevo estudio de homologación.
+        </Text>
+
+        <Text style={styles.parrafoLegal}>
+          <Text style={styles.textoBold}>ARTICULO 3°.</Text> La presente
+          resolución rige a partir de la fecha de su expedición.
+        </Text>
+
+        <Text style={[styles.textoBold, styles.textoCentro, { marginTop: 12, marginBottom: 4 }]}>
+          NOTIFIQUESE Y CUMPLASE
+        </Text>
+
+        <Text style={[styles.textoCentro, { marginBottom: 30 }]}>
+          {datos.fechaLegalCierre}
+        </Text>
+
+        <View style={styles.firmaBloque} wrap={false}>
+          <Text style={[styles.textoBold, styles.textoCentro]}>
+            SEBASTIÁN TORO VÉLEZ Ph.D.(c)
+          </Text>
+          <Text style={styles.textoCentro}>Vicerrector Académico</Text>
+        </View>
+
+        <View style={styles.notificacionBloque} wrap={false}>
+          <Text style={styles.textoBold}>Notificada(o):</Text>
+          <Text>{datos.solicitanteNombre}</Text>
+          <Text>
+            Cédula de ciudadanía No. {datos.solicitanteCedula || "—"}{" "}
+            {datos.solicitanteLugarExp ? `DE ${datos.solicitanteLugarExp.toUpperCase()}` : ""}
+          </Text>
+          <Text>Fecha de notificación: {datos.fechaNotificacion}</Text>
+          <Text style={{ marginTop: 6 }}>
+            Copia: Oficina de mercadeo y admisiones
+          </Text>
+          <Text>Gestión documental</Text>
+          <Text>Oficina control y registro académico</Text>
+          <Text style={{ marginTop: 6 }}>
+            Elaboró: {datos.coordinadorNombre || "Coordinación de Programa"}
+          </Text>
+          <Text>Revisó: Saide López.</Text>
+        </View>
+
+        {/* Pie de página institucional en cada hoja */}
+        <View style={styles.footerInstitucional} fixed>
+          <Text>
+            NIT: 891.501.766-6 Lic. De Funcionamiento: 1232 de 1979. Resolución
+            MEN Nº. 677 de 2003. Código SNIES: 2849
+          </Text>
+          <Text>
+            Sede principal Calle 5 3-85 Barrio Centro. PBX: 602 8222295 –
+            WhatsApp 314 639 54 95 – 320 675 04 64 A.A. 043 Popayán - Cauca -
+            Colombia.
+          </Text>
+          <Text>
+            www.uniautonoma.edu.co - Email: recepcion@uniautonoma.edu.co
+          </Text>
+        </View>
       </Page>
     </Document>
   );
 }
 
-// Renderiza el acta a un Buffer listo para responder como PDF.
-export function generarActaPdf(datos: DatosActa): Promise<Buffer> {
-  return renderToBuffer(<DocumentoActa {...datos} />);
+export function generarActaPdf(datos: DatosResolucion): Promise<Buffer> {
+  return renderToBuffer(<DocumentoResolucion {...datos} />);
 }

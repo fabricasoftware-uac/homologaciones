@@ -23,6 +23,8 @@ export type Configuracion = {
   notaMinima: number;
   // Clave de la paleta del modo oscuro (ver lib/marca/temas-oscuros.ts).
   temaOscuro: string;
+  // Nombre del coordinador para la resolución (migración 0035).
+  coordinadorNombre: string | null;
 };
 
 export const CONFIGURACION_DEFECTO: Configuracion = {
@@ -38,6 +40,7 @@ export const CONFIGURACION_DEFECTO: Configuracion = {
   notifPosicion: "top-center",
   notaMinima: 3.0,
   temaOscuro: "pizarra",
+  coordinadorNombre: null,
 };
 
 export const obtenerConfiguracion = cache(async (): Promise<Configuracion> => {
@@ -45,7 +48,7 @@ export const obtenerConfiguracion = cache(async (): Promise<Configuracion> => {
   const { data } = await supabase
     .from("configuracion")
     .select(
-      "nombre_institucion, eslogan, logo_path, logo_oscuro_path, color_primario, color_acento, color_eliminar, fondo_login, notif_color, notif_posicion, nota_minima, tema_oscuro",
+      "nombre_institucion, eslogan, logo_path, logo_oscuro_path, color_primario, color_acento, color_eliminar, fondo_login, notif_color, notif_posicion, nota_minima, tema_oscuro, coordinador_nombre",
     )
     .eq("id", 1)
     .maybeSingle();
@@ -64,6 +67,7 @@ export const obtenerConfiguracion = cache(async (): Promise<Configuracion> => {
     notif_posicion: string | null;
     nota_minima: number | string | null;
     tema_oscuro: string | null;
+    coordinador_nombre: string | null;
   };
 
   let logoUrl: string | null = null;
@@ -95,6 +99,7 @@ export const obtenerConfiguracion = cache(async (): Promise<Configuracion> => {
       ? Number(fila.nota_minima)
       : CONFIGURACION_DEFECTO.notaMinima,
     temaOscuro: fila.tema_oscuro ?? CONFIGURACION_DEFECTO.temaOscuro,
+    coordinadorNombre: fila.coordinador_nombre ?? null,
   };
 });
 

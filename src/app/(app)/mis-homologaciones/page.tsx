@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   IconClock as Clock,
   IconAlertCircle as AlertCircle,
@@ -80,6 +81,18 @@ export default async function PaginaMisHomologaciones() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  if (user) {
+    const { data: perfilData } = await supabase
+      .from("perfil")
+      .select("rol")
+      .eq("id", user.id)
+      .single();
+    const rol = (perfilData as { rol?: string } | null)?.rol;
+    if (rol === "admin" || rol === "asesor") {
+      redirect("/casos");
+    }
+  }
 
   const { data } = await supabase
     .from("caso")

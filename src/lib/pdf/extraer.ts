@@ -80,3 +80,14 @@ export async function extraerRenglonesPdf(datos: Uint8Array): Promise<RenglonPdf
 
   return renglones;
 }
+
+// Cuenta la cantidad de páginas de un archivo PDF en memoria (útil para folios en resoluciones).
+export async function contarPaginasPdf(datos: Uint8Array): Promise<number> {
+  try {
+    const pdf = await getDocumentProxy(datos.slice());
+    return pdf.numPages;
+  } catch {
+    return 0;
+  }
+}
+

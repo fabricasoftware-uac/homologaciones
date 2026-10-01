@@ -42,6 +42,7 @@ export type Pensum = {
   carrera: string;
   version: string;
   activo: boolean;
+  resolucion_men?: string | null;
   creado_en: string;
 };
 
@@ -61,14 +62,25 @@ export type Caso = {
   estudiante_id: string;
   pensum_destino_id: string;
   institucion_origen_nombre: string;
-  // Datos de contacto que deja el invitado al enviar (para que el admin lo contacte con el
-  // resultado). Nullable: los casos viejos, anteriores a la migración 0009, no los tienen.
+  // Programa cursado en la IES origen (migración 0035).
+  programa_origen_nombre?: string | null;
+  // Datos de contacto e identificación legal del solicitante (migración 0009 y 0035).
   solicitante_nombre: string | null;
+  solicitante_cedula?: string | null;
+  solicitante_lugar_exp?: string | null;
   solicitante_celular: string | null;
   solicitante_correo: string | null;
   archivo_pdf: string | null;
   estado: EstadoCaso;
   semestre_sugerido: number | null;
+  // Datos de la Resolución oficial (migración 0035).
+  numero_resolucion?: string | null;
+  periodo_matricula?: string | null;
+  fecha_limite_pago?: string | null;
+  folios_solicitud?: number | null;
+  folios_certificado?: number | null;
+  folios_contenidos?: number | null;
+  creado_por_id?: string | null;
   // Nota que el admin le deja al estudiante (viaja en el veredicto y el acta).
   nota_admin: string | null;
   // Nota de uso interno del admin: NO viaja al estudiante ni al acta (migración 0016).
@@ -81,6 +93,15 @@ export type Caso = {
   // Constancia de autorización de tratamiento de datos — Habeas Data (migración 0016).
   autorizo_datos: boolean;
   autorizo_en: string | null;
+  creado_en: string;
+};
+
+// Cursos que el aspirante debe matricular en el primer período (Art. 3° Resolución, migración 0035).
+export type CursoMatricula = {
+  id: string;
+  caso_id: string;
+  asignatura_id: string;
+  orden: number;
   creado_en: string;
 };
 

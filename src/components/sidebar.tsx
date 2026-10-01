@@ -14,6 +14,7 @@ import {
   IconSettings as Settings,
   IconUsers as Users,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
+  IconFilePlus as FilePlus,
   type Icon as LucideIcon,
 } from "@tabler/icons-react";
 import { motion } from "motion/react";
@@ -39,13 +40,17 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = {
   admin: [
     { to: "/inicio", icon: LayoutDashboard, label: "Inicio" },
     { to: "/casos", icon: Briefcase, label: "Casos de estudio" },
+    { to: "/casos/nuevo", icon: FilePlus, label: "Nuevo caso" },
     { to: "/carreras", icon: BookOpen, label: "Planes académicos" },
     { to: "/reportes", icon: BarChart3, label: "Reportes" },
     { to: "/usuarios", icon: Users, label: "Usuarios" },
     { to: "/configuracion", icon: Settings, label: "Configuración" },
   ],
-  // El asesor trabaja solo su bandeja (la RLS le muestra únicamente los casos asignados).
-  asesor: [{ to: "/casos", icon: Briefcase, label: "Casos de estudio" }],
+  // El asesor/coordinador trabaja su bandeja y puede crear nuevos casos.
+  asesor: [
+    { to: "/casos", icon: Briefcase, label: "Casos de estudio" },
+    { to: "/casos/nuevo", icon: FilePlus, label: "Nuevo caso" },
+  ],
   // El verificador gestiona la inscripción de los casos aprobados (la RLS le muestra solo esos).
   verificador: [{ to: "/casos", icon: Briefcase, label: "Casos aprobados" }],
 };
@@ -53,7 +58,7 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = {
 const ETIQUETA_ROL: Record<Rol, string> = {
   estudiante: "Estudiante",
   admin: "Administrador",
-  asesor: "Asesor",
+  asesor: "Coordinador / Asesor",
   verificador: "Verificador",
 };
 

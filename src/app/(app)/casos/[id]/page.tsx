@@ -8,6 +8,8 @@ import {
   IconPhone as Phone,
   IconBrandWhatsapp as Whatsapp,
   IconPaperclip as Paperclip,
+  IconId as Id,
+  IconBook as Book,
 } from "@tabler/icons-react";
 
 import { crearClienteServidor } from "@/lib/supabase/servidor";
@@ -36,6 +38,7 @@ const ESTADO_CASO_UI: Record<EstadoCaso, { etiqueta: string; clases: string }> =
 type CasoDetalle = {
   id: string;
   institucion_origen_nombre: string;
+  programa_origen_nombre?: string | null;
   estado: EstadoCaso;
   semestre_sugerido: number | null;
   pensum_destino_id: string;
@@ -45,12 +48,20 @@ type CasoDetalle = {
   decidido_en: string | null;
   decididoPor: { nombre: string } | null;
   solicitante_nombre: string | null;
+  solicitante_cedula?: string | null;
+  solicitante_lugar_exp?: string | null;
   solicitante_celular: string | null;
   solicitante_correo: string | null;
+  numero_resolucion?: string | null;
+  periodo_matricula?: string | null;
+  fecha_limite_pago?: string | null;
+  folios_solicitud?: number | null;
+  folios_certificado?: number | null;
+  folios_contenidos?: number | null;
   asesor_id: string | null;
   inscripcion_estado: string;
   nota_verificador: string | null;
-  pensum: { carrera: string; archivo_pdf: string | null } | null;
+  pensum: { carrera: string; archivo_pdf: string | null; resolucion_men?: string | null } | null;
 };
 
 // Arma el enlace de WhatsApp (wa.me) a partir del celular del solicitante. Normaliza a formato
@@ -67,7 +78,7 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
   const { data: casoData } = await supabase
     .from("caso")
     .select(
-      "id, institucion_origen_nombre, estado, semestre_sugerido, pensum_destino_id, archivo_pdf, nota_admin, nota_interna, decidido_en, decididoPor:decidido_por (nombre), solicitante_nombre, solicitante_celular, solicitante_correo, asesor_id, inscripcion_estado, nota_verificador, pensum:pensum_destino_id (carrera, archivo_pdf)",
+      "id, institucion_origen_nombre, programa_origen_nombre, estado, semestre_sugerido, pensum_destino_id, archivo_pdf, nota_admin, nota_interna, decidido_en, decididoPor:decidido_por (nombre), solicitante_nombre, solicitante_cedula, solicitante_lugar_exp, solicitante_celular, solicitante_correo, numero_resolucion, periodo_matricula, fecha_limite_pago, folios_solicitud, folios_certificado, folios_contenidos, asesor_id, inscripcion_estado, nota_verificador, pensum:pensum_destino_id (carrera, archivo_pdf, resolucion_men)",
     )
     .eq("id", params.id)
     .single();
@@ -270,6 +281,19 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
               {caso.solicitante_nombre}
             </span>
           )}
+          {caso.solicitante_cedula && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
+              <Id className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+              C.C. {caso.solicitante_cedula}{" "}
+              {caso.solicitante_lugar_exp ? `(${caso.solicitante_lugar_exp})` : ""}
+            </span>
+          )}
+          {caso.programa_origen_nombre && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 px-2.5 py-1 rounded-lg">
+              <Book className="w-3.5 h-3.5 text-blue-500" />
+              {caso.programa_origen_nombre}
+            </span>
+          )}
           {caso.solicitante_correo && (
             <a
               href={`mailto:${caso.solicitante_correo}`}
@@ -341,6 +365,12 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
             notaInterna: caso.nota_interna,
             decididoEn: caso.decidido_en,
             decididoPor: caso.decididoPor?.nombre ?? null,
+            numeroResolucion: caso.numero_resolucion ?? null,
+            periodoMatricula: caso.periodo_matricula ?? null,
+            fechaLimitePago: caso.fecha_limite_pago ?? null,
+            foliosSolicitud: caso.folios_solicitud ?? null,
+            foliosCertificado: caso.folios_certificado ?? null,
+            foliosContenidos: caso.folios_contenidos ?? null,
           }}
           homologaciones={homologaciones}
           urlCertificado={urlCertificado}

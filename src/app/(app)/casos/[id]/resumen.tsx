@@ -15,7 +15,7 @@ import {
 import clsx from "clsx";
 import { sileo } from "sileo";
 
-import { reabrirCaso, guardarNota } from "./acciones";
+import { reabrirCaso, guardarNota, guardarDatosResolucion } from "./acciones";
 import { GestionInscripcion, type MateriaInscripcion } from "./gestion-inscripcion";
 import { SelectorPlantilla } from "./selector-plantilla";
 
@@ -41,6 +41,12 @@ export function ResumenCaso({
     notaInterna: string | null;
     decididoEn: string | null;
     decididoPor: string | null;
+    numeroResolucion?: string | null;
+    periodoMatricula?: string | null;
+    fechaLimitePago?: string | null;
+    foliosSolicitud?: number | null;
+    foliosCertificado?: number | null;
+    foliosContenidos?: number | null;
   };
   homologaciones: { materia: string; asignatura: string }[];
   urlCertificado: string | null;
@@ -58,6 +64,9 @@ export function ResumenCaso({
   const [pendiente, iniciar] = useTransition();
   const [nota, setNota] = useState(caso.notaAdmin ?? "");
   const [notaInterna, setNotaInterna] = useState(caso.notaInterna ?? "");
+  const [numeroResolucion, setNumeroResolucion] = useState(caso.numeroResolucion ?? "");
+  const [periodoMatricula, setPeriodoMatricula] = useState(caso.periodoMatricula ?? "");
+  const [fechaLimitePago, setFechaLimitePago] = useState(caso.fechaLimitePago ?? "");
   const aprobado = caso.estado === "aprobado";
 
   function reabrir() {
@@ -77,6 +86,18 @@ export function ResumenCaso({
       datos.set("notaInterna", notaInterna);
       await guardarNota(datos);
       sileo.success({ title: "Notas guardadas" });
+    });
+  }
+
+  function guardarResolucion() {
+    iniciar(async () => {
+      const datos = new FormData();
+      datos.set("casoId", caso.id);
+      datos.set("numeroResolucion", numeroResolucion);
+      datos.set("periodoMatricula", periodoMatricula);
+      datos.set("fechaLimitePago", fechaLimitePago);
+      await guardarDatosResolucion(datos);
+      sileo.success({ title: "Parámetros de resolución guardados" });
     });
   }
 
@@ -213,14 +234,71 @@ export function ResumenCaso({
         </section>
         )}
 
-        {/* Acta de homologación en PDF: solo cuando el caso quedó aprobado. */}
+        {/* Resolución Oficial en PDF: solo cuando el caso quedó aprobado. */}
         {aprobado && (
-          <a
-            href={`/casos/${caso.id}/acta`}
-            className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-3 rounded-xl shadow-sm shadow-emerald-600/20 dark:shadow-none transition-colors"
-          >
-            <Download className="w-5 h-5" /> Descargar acta de homologación (PDF)
-          </a>
+          <div className="space-y-4">
+            {puedeEditar && (
+              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 space-y-3">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Parámetros de la Resolución Oficial
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                      N° Resolución
+                    </label>
+                    <input
+                      type="text"
+                      value={numeroResolucion}
+                      onChange={(e) => setNumeroResolucion(e.target.value)}
+                      placeholder="Ej.: 045 o XXX"
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none font-medium text-slate-700 dark:text-slate-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                      Período de matrícula
+                    </label>
+                    <input
+                      type="text"
+                      value={periodoMatricula}
+                      onChange={(e) => setPeriodoMatricula(e.target.value)}
+                      placeholder="Ej.: 1P-2026"
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none font-medium text-slate-700 dark:text-slate-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                      Fecha límite pago
+                    </label>
+                    <input
+                      type="date"
+                      value={fechaLimitePago}
+                      onChange={(e) => setFechaLimitePago(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none font-medium text-slate-700 dark:text-slate-200"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={guardarResolucion}
+                    disabled={pendiente}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 rounded-lg px-3 py-1.5 hover:bg-blue-100 transition-colors"
+                  >
+                    <Save className="w-3.5 h-3.5" /> Guardar parámetros
+                  </button>
+                </div>
+              </section>
+            )}
+
+            <a
+              href={`/casos/${caso.id}/acta`}
+              className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-3 rounded-xl shadow-sm shadow-emerald-600/20 dark:shadow-none transition-colors"
+            >
+              <Download className="w-5 h-5" /> Descargar Resolución Oficial (PDF)
+            </a>
+          </div>
         )}
 
         {/* Acciones */}
