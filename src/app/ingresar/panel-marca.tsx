@@ -93,8 +93,11 @@ export function PanelMarca({ marca, gradiente }: { marca: Configuracion; gradien
         </motion.div>
       </div>
 
-      <div className="relative text-xs text-white/40">
-        © {new Date().getFullYear()} {marca.nombre}
+      <div className="relative text-xs text-white/50 space-y-1">
+        <p>© {new Date().getFullYear()} {marca.nombre}</p>
+        <p className="text-[11px] text-white/40">
+          Desarrollado por la <span className="text-white/70 font-medium">Fábrica de Software</span> · Powered by <span className="text-white/80 font-semibold">Emprendelab</span>
+        </p>
       </div>
     </div>
   );

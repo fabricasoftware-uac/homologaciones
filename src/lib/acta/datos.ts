@@ -5,10 +5,12 @@ import { obtenerConfiguracion } from "@/lib/marca/configuracion";
 import type { EstadoCaso } from "@/types";
 import {
   generarActaPdf,
+  formatearCursoCapitalizado,
   type DatosResolucion,
   type FilaHomologada,
   type FilaCursoMatricula,
 } from "./documento";
+import { proyectarCursosAutomaticos, type AsignaturaProyeccion } from "./proyeccion-matricula";
 
 export type CasoActa = {
   id: string;
@@ -97,7 +99,7 @@ export async function cargarHomologacionesAprobadas(
     .map((v) => {
       const cr = v.asignatura?.creditos ?? 0;
       return {
-        materiaOrigen: v.materia_origen?.nombre ?? "—",
+        materiaOrigen: formatearCursoCapitalizado(v.materia_origen?.nombre) || "—",
         codigoUniautonoma: v.asignatura?.codigo ?? "—",
         nombreAsignatura: v.asignatura?.nombre ?? "—",
         semestre: v.asignatura?.semestre ?? 1,
@@ -142,34 +144,23 @@ export async function cargarCursosMatricula(
     });
   }
 
-  // 2. Si no hay cursos guardados, sugerir las asignaturas del pensum en el semestre de ingreso que no estén homologadas
-  const semestreIngreso = caso.semestre_sugerido ?? 1;
-  const nombresHomologados = new Set(
-    homologadas.map((h) => h.nombreAsignatura.trim().toLowerCase()),
-  );
-
-  const { data: asignaturasSemestre } = await supabase
+  // 2. Si no hay cursos guardados, proyectar automáticamente según las reglas académicas
+  const { data: asignaturasPensum } = await supabase
     .from("asignatura")
-    .select("codigo, nombre, semestre, creditos")
+    .select("id, codigo, nombre, semestre, creditos")
     .eq("pensum_id", caso.pensum_destino_id)
-    .eq("semestre", semestreIngreso)
-    .order("nombre");
+    .order("semestre");
 
-  const lista = (asignaturasSemestre ?? []) as {
-    codigo: string | null;
-    nombre: string;
-    semestre: number;
-    creditos: number;
-  }[];
+  const lista = (asignaturasPensum ?? []) as AsignaturaProyeccion[];
 
-  const pendientes = lista.filter(
-    (a) => !nombresHomologados.has(a.nombre.trim().toLowerCase()),
+  const proyectadas = proyectarCursosAutomaticos(
+    lista,
+    { nombres: homologadas.map((h) => h.nombreAsignatura) },
+    caso.semestre_sugerido ?? 1,
+    6,
   );
 
-  // Si en ese semestre ya todo estuviera homologado, traemos las del siguiente semestre
-  const fuente = pendientes.length > 0 ? pendientes : lista;
-
-  return fuente.map((a, i) => {
+  return proyectadas.map((a, i) => {
     const cr = a.creditos || 0;
     return {
       no: i + 1,

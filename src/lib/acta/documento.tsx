@@ -7,8 +7,33 @@ import {
   Text,
   Image,
   StyleSheet,
+  Font,
   renderToBuffer,
 } from "@react-pdf/renderer";
+
+// Desactivar corte silábico automático de palabras (evita "CALIFI-CACIÓN")
+Font.registerHyphenationCallback((word) => [word]);
+
+/**
+ * Da formato a los cursos de procedencia según los estándares de la institución:
+ * primera letra en mayúscula, o inmediatamente después de un punto, y el resto en minúsculas,
+ * preservando números romanos (I, II, III, etc.) y siglas comunes.
+ */
+export function formatearCursoCapitalizado(texto: string | null | undefined): string {
+  if (!texto) return "";
+  const limpio = texto.trim();
+  if (!limpio) return "";
+  let s = limpio.toLocaleLowerCase("es");
+  // Mayúscula al inicio y tras un punto seguido de espacio(s)
+  s = s.replace(/(^\s*|\.\s+)([a-záéíóúüñ])/g, (_, prefijo, letra) => {
+    return prefijo + letra.toLocaleUpperCase("es");
+  });
+  // Preservar números romanos
+  s = s.replace(/\b(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b/gi, (match) => match.toUpperCase());
+  // Preservar siglas comunes
+  s = s.replace(/\b(sena|tic|tics|bd|sql|ia|html|css|js|php|api|ip)\b/gi, (match) => match.toUpperCase());
+  return s;
+}
 
 // ── FORMATO OFICIAL DE RESOLUCIÓN DE HOMOLOGACIÓN ──
 // Vicerrectoría Académica · Corporación Universitaria Autónoma del Cauca
@@ -75,7 +100,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 15,
+    marginBottom: 10,
   },
   logoImg: {
     width: 220,
@@ -117,42 +142,42 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontFamily: "Helvetica-Bold",
     textAlign: "center",
-    marginTop: 6,
+    marginTop: 4,
   },
   fechaEncabezado: {
     fontSize: 9.5,
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   epigrafe: {
     fontSize: 9.5,
     fontFamily: "Helvetica-Bold",
     textAlign: "justify",
-    marginBottom: 12,
-    lineHeight: 1.3,
+    marginBottom: 8,
+    lineHeight: 1.28,
   },
   parrafoLegal: {
     fontSize: 9.5,
     textAlign: "justify",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   considerandoTitulo: {
     fontSize: 9.5,
     fontFamily: "Helvetica-Bold",
-    marginTop: 8,
-    marginBottom: 6,
+    marginTop: 6,
+    marginBottom: 4,
   },
   resuelveTitulo: {
     fontSize: 9.5,
     fontFamily: "Helvetica-Bold",
     textAlign: "center",
-    marginTop: 10,
-    marginBottom: 8,
+    marginTop: 8,
+    marginBottom: 6,
   },
   articuloTitulo: {
     fontSize: 9.5,
     fontFamily: "Helvetica-Bold",
-    marginTop: 10,
+    marginTop: 8,
     marginBottom: 4,
   },
   tabla: {
@@ -167,23 +192,76 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: "#000000",
     minHeight: 18,
-    alignItems: "center",
+    alignItems: "stretch",
   },
   tablaFilaEncabezado: {
-    backgroundColor: "#f1f5f9",
-    fontFamily: "Helvetica-Bold",
+    backgroundColor: "#ffffff",
   },
-  tablaCelda: {
-    paddingVertical: 3,
-    paddingHorizontal: 3,
-    fontSize: 7.5,
+  tablaFilaAzul: {
+    flexDirection: "row",
+    backgroundColor: "#002060",
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#ffffff",
+    minHeight: 18,
+    alignItems: "stretch",
+  },
+  tablaFilaAzulCierre: {
+    flexDirection: "row",
+    backgroundColor: "#002060",
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#000000",
+    minHeight: 18,
+    alignItems: "stretch",
+  },
+  celdaAzul: {
+    justifyContent: "center",
+    paddingVertical: 3.5,
+    paddingHorizontal: 4,
+    borderRightWidth: 0.5,
+    borderRightColor: "#ffffff",
+  },
+  celdaAzulSinBorde: {
+    justifyContent: "center",
+    paddingVertical: 3.5,
+    paddingHorizontal: 4,
+  },
+  celda: {
     borderRightWidth: 0.5,
     borderRightColor: "#000000",
+    justifyContent: "center",
+    paddingVertical: 3.5,
+    paddingHorizontal: 3.5,
   },
-  tablaCeldaSinBorde: {
-    paddingVertical: 3,
-    paddingHorizontal: 3,
+  celdaSinBorde: {
+    justifyContent: "center",
+    paddingVertical: 3.5,
+    paddingHorizontal: 3.5,
+  },
+  celdaCompacta: {
+    borderRightWidth: 0.5,
+    borderRightColor: "#000000",
+    justifyContent: "center",
+    paddingVertical: 3.5,
+    paddingHorizontal: 2,
+  },
+  celdaCompactaSinBorde: {
+    justifyContent: "center",
+    paddingVertical: 3.5,
+    paddingHorizontal: 2,
+  },
+  textoAzul: {
     fontSize: 7.5,
+    color: "#ffffff",
+    fontFamily: "Helvetica-Bold",
+  },
+  textoEncabezado: {
+    fontSize: 6.8,
+    fontFamily: "Helvetica-Bold",
+    lineHeight: 1.15,
+  },
+  textoDato: {
+    fontSize: 7.5,
+    lineHeight: 1.25,
   },
   textoBold: {
     fontFamily: "Helvetica-Bold",
@@ -195,8 +273,8 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   firmaBloque: {
-    marginTop: 25,
-    marginBottom: 15,
+    marginTop: 18,
+    marginBottom: 10,
   },
   notificacionBloque: {
     marginTop: 10,
@@ -322,109 +400,130 @@ function DocumentoResolucion(datos: DatosResolucion) {
         {/* TABLA ARTÍCULO 1°: Cursos homologados */}
         <View style={styles.tabla}>
           {/* Fila 1: Programa de origen */}
-          <View style={styles.tablaFila}>
-            <Text style={[styles.tablaCelda, styles.textoBold, { width: "30%" }]}>
-              PROGRAMA DE ORIGEN:
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, { width: "70%" }]}>
-              {datos.programaOrigen.toUpperCase()}
-            </Text>
+          <View style={styles.tablaFilaAzul}>
+            <View style={[styles.celdaAzul, { width: "32.5%" }]}>
+              <Text style={styles.textoAzul}>PROGRAMA DE ORIGEN:</Text>
+            </View>
+            <View style={[styles.celdaAzulSinBorde, { width: "67.5%" }]}>
+              <Text style={styles.textoAzul}>{datos.programaOrigen.toUpperCase()}</Text>
+            </View>
           </View>
 
           {/* Fila 2: Institución de origen */}
-          <View style={styles.tablaFila}>
-            <Text style={[styles.tablaCelda, styles.textoBold, { width: "30%" }]}>
-              INSTITUCIÓN DE ORIGEN:
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, { width: "70%" }]}>
-              {datos.institucionOrigen.toUpperCase()}
-            </Text>
+          <View style={styles.tablaFilaAzulCierre}>
+            <View style={[styles.celdaAzul, { width: "32.5%" }]}>
+              <Text style={styles.textoAzul}>INSTITUCIÓN DE ORIGEN:</Text>
+            </View>
+            <View style={[styles.celdaAzulSinBorde, { width: "67.5%" }]}>
+              <Text style={styles.textoAzul}>{datos.institucionOrigen.toUpperCase()}</Text>
+            </View>
           </View>
 
           {/* Fila 3: Banner de título */}
-          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]}>
-            <Text
-              style={[
-                styles.tablaCeldaSinBorde,
-                styles.textoBold,
-                styles.textoCentro,
-                { width: "100%", fontSize: 8 },
-              ]}
-            >
-              CURSOS ACADÉMICOS HOMOLOGADOS
-            </Text>
+          <View style={[styles.tablaFila, { backgroundColor: "#ffffff" }]}>
+            <View style={[styles.celdaSinBorde, { width: "100%", paddingVertical: 4 }]}>
+              <Text style={[styles.textoBold, styles.textoCentro, { fontSize: 8.5 }]}>
+                CURSOS ACADÉMICOS HOMOLOGADOS
+              </Text>
+            </View>
           </View>
 
           {/* Fila 4: Encabezados de columna */}
           <View style={[styles.tablaFila, styles.tablaFilaEncabezado]}>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "26%" }]}>
-              NOMBRE CURSO INSTITUCIÓN DE ORIGEN
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "12%" }]}>
-              CÓDIGO CURSO UNIAUTONOMA
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "26%" }]}>
-              NOMBRE CURSO ACADÉMICO UNIAUTONOMA
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "6%" }]}>
-              SEM.
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "6%" }]}>
-              CR
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "7%" }]}>
-              IH
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "6%" }]}>
-              TIPO
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "11%" }]}>
-              CALIFICACIÓN
-            </Text>
+            <View style={[styles.celda, { width: "25.4%" }]}>
+              <Text style={[styles.textoEncabezado, styles.textoCentro]}>
+                NOMBRE CURSO INSTITUCIÓN DE ORIGEN
+              </Text>
+            </View>
+            <View style={[styles.celda, { width: "15.5%" }]}>
+              <Text style={[styles.textoEncabezado, styles.textoCentro]}>
+                CÓDIGO CURSO UNIAUTONOMA
+              </Text>
+            </View>
+            <View style={[styles.celda, { width: "24.8%" }]}>
+              <Text style={[styles.textoEncabezado, styles.textoCentro]}>
+                NOMBRE CURSO ACADÉMICO UNIAUTONOMA
+              </Text>
+            </View>
+            <View style={[styles.celdaCompacta, { width: "7.0%" }]}>
+              <Text style={[styles.textoEncabezado, styles.textoCentro]}>SEM.</Text>
+            </View>
+            <View style={[styles.celdaCompacta, { width: "4.5%" }]}>
+              <Text style={[styles.textoEncabezado, styles.textoCentro]}>CR</Text>
+            </View>
+            <View style={[styles.celdaCompacta, { width: "5.5%" }]}>
+              <Text style={[styles.textoEncabezado, styles.textoCentro]}>IH</Text>
+            </View>
+            <View style={[styles.celdaCompacta, { width: "5.5%" }]}>
+              <Text style={[styles.textoEncabezado, styles.textoCentro]}>TIPO</Text>
+            </View>
+            <View style={[styles.celdaSinBorde, { width: "11.8%" }]}>
+              <Text style={[styles.textoEncabezado, styles.textoCentro]}>CALIFICACIÓN</Text>
+            </View>
           </View>
 
           {/* Filas de datos homologados */}
           {datos.homologaciones.map((h, i) => (
             <View key={i} style={styles.tablaFila} wrap={false}>
-              <Text style={[styles.tablaCelda, { width: "26%" }]}>{h.materiaOrigen}</Text>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "12%" }]}>
-                {h.codigoUniautonoma || "—"}
-              </Text>
-              <Text style={[styles.tablaCelda, { width: "26%" }]}>{h.nombreAsignatura}</Text>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "6%" }]}>
-                {h.semestre || "—"}
-              </Text>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "6%" }]}>
-                {h.creditos || "—"}
-              </Text>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "7%" }]}>
-                {h.intensidadHoraria || "—"}
-              </Text>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "6%" }]}>
-                {h.tipo || "TP"}
-              </Text>
-              <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "11%" }]}>
-                {h.calificacion || "Aprobado"}
-              </Text>
+              <View style={[styles.celda, { width: "25.4%" }]}>
+                <Text style={styles.textoDato}>{formatearCursoCapitalizado(h.materiaOrigen)}</Text>
+              </View>
+              <View style={[styles.celda, { width: "15.5%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>
+                  {h.codigoUniautonoma || "—"}
+                </Text>
+              </View>
+              <View style={[styles.celda, { width: "24.8%" }]}>
+                <Text style={styles.textoDato}>{h.nombreAsignatura}</Text>
+              </View>
+              <View style={[styles.celdaCompacta, { width: "7.0%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>{h.semestre || "—"}</Text>
+              </View>
+              <View style={[styles.celdaCompacta, { width: "4.5%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>{h.creditos || "—"}</Text>
+              </View>
+              <View style={[styles.celdaCompacta, { width: "5.5%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>
+                  {h.intensidadHoraria || "—"}
+                </Text>
+              </View>
+              <View style={[styles.celdaCompacta, { width: "5.5%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>{h.tipo || "TP"}</Text>
+              </View>
+              <View style={[styles.celdaSinBorde, { width: "11.8%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>
+                  {h.calificacion || "Aprobado"}
+                </Text>
+              </View>
             </View>
           ))}
 
           {/* Totales Artículo 1° */}
-          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
-            <Text style={[styles.tablaCelda, styles.textoBold, { width: "64%" }]}>
-              TOTAL CURSOS HOMOLOGADOS:
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "36%" }]}>
-              {datos.homologaciones.length}
-            </Text>
-          </View>
-          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
-            <Text style={[styles.tablaCelda, styles.textoBold, { width: "64%" }]}>
-              TOTAL CRÉDITOS HOMOLOGADOS:
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "36%" }]}>
-              {totalCreditosHomologados}
-            </Text>
+          <View wrap={false}>
+            <View style={styles.tablaFila}>
+              <View style={[styles.celda, { width: "65.7%" }]}>
+                <Text style={[styles.textoDato, styles.textoBold, styles.textoCentro]}>
+                  TOTAL CURSOS HOMOLOGADOS:
+                </Text>
+              </View>
+              <View style={[styles.celdaSinBorde, { width: "34.3%" }]}>
+                <Text style={[styles.textoDato, styles.textoBold, styles.textoCentro]}>
+                  {datos.homologaciones.length}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.tablaFila}>
+              <View style={[styles.celda, { width: "65.7%" }]}>
+                <Text style={[styles.textoDato, styles.textoBold, styles.textoCentro]}>
+                  TOTAL CRÉDITOS HOMOLOGADOS:
+                </Text>
+              </View>
+              <View style={[styles.celdaSinBorde, { width: "34.3%" }]}>
+                <Text style={[styles.textoDato, styles.textoBold, styles.textoCentro]}>
+                  {totalCreditosHomologados}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -436,53 +535,65 @@ function DocumentoResolucion(datos: DatosResolucion) {
         </Text>
 
         <View style={styles.tabla}>
-          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]}>
-            <Text style={[styles.tablaCelda, styles.textoBold, { width: "80%" }]}>
-              DOCUMENTO
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "20%" }]}>
-              N0. DE FOLIOS
-            </Text>
+          <View style={styles.tablaFilaAzulCierre}>
+            <View style={[styles.celdaAzul, { width: "80%" }]}>
+              <Text style={styles.textoAzul}>DOCUMENTO</Text>
+            </View>
+            <View style={[styles.celdaAzulSinBorde, { width: "20%" }]}>
+              <Text style={[styles.textoAzul, styles.textoCentro]}>N0. DE FOLIOS</Text>
+            </View>
           </View>
 
           <View style={styles.tablaFila} wrap={false}>
-            <Text style={[styles.tablaCelda, { width: "80%" }]}>
-              Formato de solicitud del aspirante/estudiante.
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "20%" }]}>
-              {datos.foliosSolicitud || 1}
-            </Text>
+            <View style={[styles.celda, { width: "80%" }]}>
+              <Text style={styles.textoDato}>Formato de solicitud del aspirante/estudiante.</Text>
+            </View>
+            <View style={[styles.celdaSinBorde, { width: "20%" }]}>
+              <Text style={[styles.textoDato, styles.textoCentro]}>
+                {datos.foliosSolicitud || 1}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.tablaFila} wrap={false}>
-            <Text style={[styles.tablaCelda, { width: "80%" }]}>
-              Certificado oficial de calificaciones, en el cual deben figurar todas
-              las asignaturas cursadas por estudiantes, la intensidad horaria
-              total, los créditos académicos y la calificación de cada una de
-              ellas.
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "20%" }]}>
-              {datos.foliosCertificado || "—"}
-            </Text>
+            <View style={[styles.celda, { width: "80%" }]}>
+              <Text style={styles.textoDato}>
+                Certificado oficial de calificaciones, en el cual deben figurar todas
+                las asignaturas cursadas por estudiantes, la intensidad horaria
+                total, los créditos académicos y la calificación de cada una de
+                ellas.
+              </Text>
+            </View>
+            <View style={[styles.celdaSinBorde, { width: "20%" }]}>
+              <Text style={[styles.textoDato, styles.textoCentro]}>
+                {datos.foliosCertificado || "—"}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.tablaFila} wrap={false}>
-            <Text style={[styles.tablaCelda, { width: "80%" }]}>
-              Documento debidamente refrendado en donde conste el contenido
-              programático de las asignaturas cursadas y aprobadas.
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "20%" }]}>
-              {datos.foliosContenidos ? datos.foliosContenidos : "—"}
-            </Text>
+            <View style={[styles.celda, { width: "80%" }]}>
+              <Text style={styles.textoDato}>
+                Documento debidamente refrendado en donde conste el contenido
+                programático de las asignaturas cursadas y aprobadas.
+              </Text>
+            </View>
+            <View style={[styles.celdaSinBorde, { width: "20%" }]}>
+              <Text style={[styles.textoDato, styles.textoCentro]}>
+                {datos.foliosContenidos ? datos.foliosContenidos : "—"}
+              </Text>
+            </View>
           </View>
 
-          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
-            <Text style={[styles.tablaCelda, styles.textoBold, { width: "80%" }]}>
-              TOTAL FOLIOS
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "20%" }]}>
-              {totalFolios}
-            </Text>
+          <View style={styles.tablaFila} wrap={false}>
+            <View style={[styles.celda, { width: "80%" }]}>
+              <Text style={[styles.textoDato, styles.textoBold]}>TOTAL FOLIOS</Text>
+            </View>
+            <View style={[styles.celdaSinBorde, { width: "20%" }]}>
+              <Text style={[styles.textoDato, styles.textoBold, styles.textoCentro]}>
+                {totalFolios}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -493,69 +604,77 @@ function DocumentoResolucion(datos: DatosResolucion) {
         </Text>
 
         <View style={styles.tabla}>
-          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]}>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "6%" }]}>
-              NO
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "18%" }]}>
-              CÓDIGO DEL CURSO
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "44%" }]}>
-              CURSO
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "8%" }]}>
-              SEM.
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "8%" }]}>
-              CR
-            </Text>
-            <Text style={[styles.tablaCelda, styles.textoBold, styles.textoCentro, { width: "8%" }]}>
-              IH
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "8%" }]}>
-              TP
-            </Text>
+          <View style={styles.tablaFilaAzulCierre}>
+            <View style={[styles.celdaAzul, { width: "6%" }]}>
+              <Text style={[styles.textoAzul, styles.textoCentro]}>NO</Text>
+            </View>
+            <View style={[styles.celdaAzul, { width: "18%" }]}>
+              <Text style={[styles.textoAzul, styles.textoCentro]}>CÓDIGO DEL CURSO</Text>
+            </View>
+            <View style={[styles.celdaAzul, { width: "44%" }]}>
+              <Text style={[styles.textoAzul, styles.textoCentro]}>CURSO</Text>
+            </View>
+            <View style={[styles.celdaAzul, { width: "8%" }]}>
+              <Text style={[styles.textoAzul, styles.textoCentro]}>SEM.</Text>
+            </View>
+            <View style={[styles.celdaAzul, { width: "8%" }]}>
+              <Text style={[styles.textoAzul, styles.textoCentro]}>CR</Text>
+            </View>
+            <View style={[styles.celdaAzul, { width: "8%" }]}>
+              <Text style={[styles.textoAzul, styles.textoCentro]}>IH</Text>
+            </View>
+            <View style={[styles.celdaAzulSinBorde, { width: "8%" }]}>
+              <Text style={[styles.textoAzul, styles.textoCentro]}>TP</Text>
+            </View>
           </View>
 
           {datos.cursosMatricula.map((c, i) => (
             <View key={i} style={styles.tablaFila} wrap={false}>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "6%" }]}>
-                {c.no || i + 1}
-              </Text>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "18%" }]}>
-                {c.codigo || "—"}
-              </Text>
-              <Text style={[styles.tablaCelda, { width: "44%" }]}>{c.curso}</Text>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "8%" }]}>
-                {c.semestre || "—"}
-              </Text>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "8%" }]}>
-                {c.creditos || "—"}
-              </Text>
-              <Text style={[styles.tablaCelda, styles.textoCentro, { width: "8%" }]}>
-                {c.intensidadHoraria || "—"}
-              </Text>
-              <Text style={[styles.tablaCeldaSinBorde, styles.textoCentro, { width: "8%" }]}>
-                {c.tipo || "TP"}
-              </Text>
+              <View style={[styles.celdaCompacta, { width: "6%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>{c.no || i + 1}</Text>
+              </View>
+              <View style={[styles.celda, { width: "18%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>{c.codigo || "—"}</Text>
+              </View>
+              <View style={[styles.celda, { width: "44%" }]}>
+                <Text style={styles.textoDato}>{c.curso}</Text>
+              </View>
+              <View style={[styles.celdaCompacta, { width: "8%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>{c.semestre || "—"}</Text>
+              </View>
+              <View style={[styles.celdaCompacta, { width: "8%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>{c.creditos || "—"}</Text>
+              </View>
+              <View style={[styles.celdaCompacta, { width: "8%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>{c.intensidadHoraria || "—"}</Text>
+              </View>
+              <View style={[styles.celdaCompactaSinBorde, { width: "8%" }]}>
+                <Text style={[styles.textoDato, styles.textoCentro]}>{c.tipo || "TP"}</Text>
+              </View>
             </View>
           ))}
 
-          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
-            <Text style={[styles.tablaCelda, styles.textoBold, { width: "68%" }]}>
-              TOTAL CURSOS
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "32%" }]}>
-              {totalCursosMatricula}
-            </Text>
-          </View>
-          <View style={[styles.tablaFila, styles.tablaFilaEncabezado]} wrap={false}>
-            <Text style={[styles.tablaCelda, styles.textoBold, { width: "68%" }]}>
-              TOTAL CREDITOS
-            </Text>
-            <Text style={[styles.tablaCeldaSinBorde, styles.textoBold, styles.textoCentro, { width: "32%" }]}>
-              {totalCreditosMatricula}
-            </Text>
+          <View wrap={false}>
+            <View style={styles.tablaFila}>
+              <View style={[styles.celda, { width: "68%" }]}>
+                <Text style={[styles.textoDato, styles.textoBold]}>TOTAL CURSOS</Text>
+              </View>
+              <View style={[styles.celdaSinBorde, { width: "32%" }]}>
+                <Text style={[styles.textoDato, styles.textoBold, styles.textoCentro]}>
+                  {totalCursosMatricula}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.tablaFila}>
+              <View style={[styles.celda, { width: "68%" }]}>
+                <Text style={[styles.textoDato, styles.textoBold]}>TOTAL CREDITOS</Text>
+              </View>
+              <View style={[styles.celdaSinBorde, { width: "32%" }]}>
+                <Text style={[styles.textoDato, styles.textoBold, styles.textoCentro]}>
+                  {totalCreditosMatricula}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -582,38 +701,40 @@ function DocumentoResolucion(datos: DatosResolucion) {
           resolución rige a partir de la fecha de su expedición.
         </Text>
 
-        <Text style={[styles.textoBold, styles.textoCentro, { marginTop: 12, marginBottom: 4 }]}>
-          NOTIFIQUESE Y CUMPLASE
-        </Text>
+        <View wrap={false}>
+          <Text style={[styles.textoBold, styles.textoCentro, { marginTop: 10, marginBottom: 4 }]}>
+            NOTIFIQUESE Y CUMPLASE
+          </Text>
 
-        <Text style={[styles.textoCentro, { marginBottom: 30 }]}>
-          {datos.fechaLegalCierre}
-        </Text>
+          <Text style={[styles.textoCentro, { marginBottom: 20 }]}>
+            {datos.fechaLegalCierre}
+          </Text>
 
-        <View style={styles.firmaBloque} wrap={false}>
-          <Text style={[styles.textoBold, styles.textoCentro]}>
-            SEBASTIÁN TORO VÉLEZ Ph.D.(c)
-          </Text>
-          <Text style={styles.textoCentro}>Vicerrector Académico</Text>
-        </View>
+          <View style={styles.firmaBloque}>
+            <Text style={[styles.textoBold, styles.textoCentro]}>
+              SEBASTIÁN TORO VÉLEZ Ph.D.(c)
+            </Text>
+            <Text style={styles.textoCentro}>Vicerrector Académico</Text>
+          </View>
 
-        <View style={styles.notificacionBloque} wrap={false}>
-          <Text style={styles.textoBold}>Notificada(o):</Text>
-          <Text>{datos.solicitanteNombre}</Text>
-          <Text>
-            Cédula de ciudadanía No. {datos.solicitanteCedula || "—"}{" "}
-            {datos.solicitanteLugarExp ? `DE ${datos.solicitanteLugarExp.toUpperCase()}` : ""}
-          </Text>
-          <Text>Fecha de notificación: {datos.fechaNotificacion}</Text>
-          <Text style={{ marginTop: 6 }}>
-            Copia: Oficina de mercadeo y admisiones
-          </Text>
-          <Text>Gestión documental</Text>
-          <Text>Oficina control y registro académico</Text>
-          <Text style={{ marginTop: 6 }}>
-            Elaboró: {datos.coordinadorNombre || "Coordinación de Programa"}
-          </Text>
-          <Text>Revisó: Saide López.</Text>
+          <View style={styles.notificacionBloque}>
+            <Text style={styles.textoBold}>Notificada(o):</Text>
+            <Text>{datos.solicitanteNombre}</Text>
+            <Text>
+              Cédula de ciudadanía No. {datos.solicitanteCedula || "—"}{" "}
+              {datos.solicitanteLugarExp ? `DE ${datos.solicitanteLugarExp.toUpperCase()}` : ""}
+            </Text>
+            <Text>Fecha de notificación: {datos.fechaNotificacion}</Text>
+            <Text style={{ marginTop: 4 }}>
+              Copia: Oficina de mercadeo y admisiones
+            </Text>
+            <Text>Gestión documental</Text>
+            <Text>Oficina control y registro académico</Text>
+            <Text style={{ marginTop: 4 }}>
+              Elaboró: {datos.coordinadorNombre || "Coordinación de Programa"}
+            </Text>
+            <Text>Revisó: Saide López.</Text>
+          </View>
         </View>
 
         {/* Pie de página institucional en cada hoja */}

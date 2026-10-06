@@ -428,13 +428,19 @@ export function Landing({
           </div>
         </div>
         <div className="border-t border-slate-100 dark:border-slate-800">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400 dark:text-slate-500">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400 dark:text-slate-500 text-center sm:text-left">
             <span>
               © {new Date().getFullYear()} {marca.nombre}. Todos los derechos reservados.
             </span>
-            <span className="flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" /> Homologación asistida por IA, confirmada por personas.
-            </span>
+            <div className="flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4">
+              <span className="text-slate-500 dark:text-slate-400">
+                Desarrollado por la <strong className="font-semibold text-slate-700 dark:text-slate-300">Fábrica de Software</strong> · Powered by <strong className="font-semibold text-slate-700 dark:text-slate-300">Emprendelab</strong>
+              </span>
+              <span className="hidden sm:inline text-slate-300 dark:text-slate-700">•</span>
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" /> Homologación asistida por IA
+              </span>
+            </div>
           </div>
         </div>
       </footer>

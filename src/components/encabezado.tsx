@@ -8,20 +8,19 @@ export function EncabezadoPagina({
   descripcion,
   icono: Icono,
   accion,
+  subbarra,
 }: {
   titulo: string;
   descripcion?: string;
   icono?: LucideIcon;
   accion?: React.ReactNode;
+  subbarra?: React.ReactNode;
 }) {
   // Scroll de ventana: el encabezado es sticky al documento. En móvil se pega DEBAJO del header móvil
   // (h-16); en escritorio (sin header móvil) se pega arriba del todo.
   return (
     <header className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-sm border-b border-slate-200 dark:border-slate-800 px-4 sm:px-8 py-4 sm:py-5 sticky top-16 md:top-0 z-20">
-      {/* El título y la acción (buscador, filtros) se apilan hasta xl: la acción baja a su propia
-          fila para que la descripción nunca se comprima. Solo en pantallas anchas (xl+, donde sí hay
-          espacio para la acción ancha) van en la misma fila. */}
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
           {Icono && (
             // En claro: chip con el color de marca. En oscuro: chip NEUTRO (superficie elevada), para
@@ -42,8 +41,13 @@ export function EncabezadoPagina({
             )}
           </div>
         </div>
-        {accion && <div className="shrink-0 xl:ml-auto">{accion}</div>}
+        {accion && <div className="shrink-0 sm:ml-auto">{accion}</div>}
       </div>
+      {subbarra && (
+        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800/70 mt-3">
+          {subbarra}
+        </div>
+      )}
     </header>
   );
 }

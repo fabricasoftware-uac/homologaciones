@@ -23,6 +23,7 @@ import {
   type VinculoStudio,
 } from "./estudio";
 import { ResumenCaso } from "./resumen";
+import { proyectarCursosAutomaticos } from "@/lib/acta/proyeccion-matricula";
 
 // El botón "Reprocesar" corre el pipeline de IA completo (con esperas ante rate-limits de la IA y OCR
 // por visión si el certificado está escaneado). Sin esto, Vercel corta la función a los ~10s.
@@ -88,23 +89,32 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
   }
   const caso = casoData as unknown as CasoDetalle;
 
-  const [{ data: materiasData }, { data: asignaturasData }, { data: vinculosData }] =
-    await Promise.all([
-      supabase
-        .from("materia_origen")
-        .select("id, codigo, nombre, creditos, nota, semestre_origen, tipo, metadatos")
-        .eq("caso_id", params.id)
-        .order("semestre_origen", { nullsFirst: false }),
-      supabase
-        .from("asignatura")
-        .select("id, codigo, nombre, creditos, semestre")
-        .eq("pensum_id", caso.pensum_destino_id)
-        .order("semestre"),
-      supabase
-        .from("vinculo")
-        .select("id, materia_origen_id, asignatura_id, similitud, razon, estado, matriculado")
-        .eq("caso_id", params.id),
-    ]);
+  const [
+    { data: materiasData },
+    { data: asignaturasData },
+    { data: vinculosData },
+    { data: cursosMatriculaData },
+  ] = await Promise.all([
+    supabase
+      .from("materia_origen")
+      .select("id, codigo, nombre, creditos, nota, semestre_origen, tipo, metadatos")
+      .eq("caso_id", params.id)
+      .order("semestre_origen", { nullsFirst: false }),
+    supabase
+      .from("asignatura")
+      .select("id, codigo, nombre, creditos, semestre")
+      .eq("pensum_id", caso.pensum_destino_id)
+      .order("semestre"),
+    supabase
+      .from("vinculo")
+      .select("id, materia_origen_id, asignatura_id, similitud, razon, estado, matriculado")
+      .eq("caso_id", params.id),
+    supabase
+      .from("curso_matricula")
+      .select("orden, asignatura:asignatura_id (id, codigo, nombre, semestre, creditos)")
+      .eq("caso_id", params.id)
+      .order("orden"),
+  ]);
 
   const materias: MateriaStudio[] = (
     (materiasData ?? []) as {
@@ -217,6 +227,33 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
       asignatura: nombreAsignatura.get(v.asignaturaId) ?? "—",
       matriculado: matriculadoPorVinculo.get(v.id) ?? false,
     }));
+
+  // Cursos de matrícula guardados explícitamente en base de datos
+  const cursosMatriculaGuardados = ((cursosMatriculaData ?? []) as unknown as {
+    orden: number;
+    asignatura: { id: string; codigo: string | null; nombre: string; semestre: number; creditos: number } | null;
+  }[])
+    .filter((c) => c.asignatura != null)
+    .map((c) => ({
+      id: c.asignatura!.id,
+      codigo: c.asignatura!.codigo,
+      nombre: c.asignatura!.nombre,
+      semestre: c.asignatura!.semestre,
+      creditos: c.asignatura!.creditos,
+    }));
+
+  // Proyección automática inteligente como sugerencia base
+  const homologadasIds = new Set(
+    vinculosCrudos.filter((v) => v.estado === "aprobado").map((v) => v.asignatura_id),
+  );
+  const homologadasNombres = new Set(homologaciones.map((h) => h.asignatura));
+
+  const sugerenciaAutomatica = proyectarCursosAutomaticos(
+    asignaturas,
+    { ids: homologadasIds, nombres: homologadasNombres },
+    caso.semestre_sugerido ?? 1,
+    6,
+  );
 
   // Quién mira el caso. El middleware ya limitó /casos al staff; el rol decide los extras: el admin
   // asigna asesor en el estudio, y admin/verificador gestionan la inscripción de los aprobados.
@@ -378,6 +415,9 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
           plantillas={plantillas}
           puedeEditar={rol !== "verificador"}
           gestion={gestion}
+          cursosMatriculaIniciales={cursosMatriculaGuardados}
+          sugerenciaAutomatica={sugerenciaAutomatica}
+          todasAsignaturas={asignaturas}
         />
       ) : (
         <EstudioHomologacion
@@ -388,6 +428,9 @@ export default async function PaginaRevisarCaso({ params }: { params: { id: stri
             semestreSugerido: caso.semestre_sugerido,
             notaAdmin: caso.nota_admin,
             notaInterna: caso.nota_interna,
+            numeroResolucion: caso.numero_resolucion ?? null,
+            periodoMatricula: caso.periodo_matricula ?? null,
+            fechaLimitePago: caso.fecha_limite_pago ?? null,
             cerrado,
           }}
           materias={materias}

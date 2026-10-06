@@ -28,8 +28,8 @@ export type Configuracion = {
 };
 
 export const CONFIGURACION_DEFECTO: Configuracion = {
-  nombre: "TransfoEdu",
-  eslogan: "Sistema de homologaciones académicas",
+  nombre: "IrisLab",
+  eslogan: "Sistema Inteligente de Homologaciones Académicas",
   logoUrl: null,
   logoOscuroUrl: null,
   colorPrimario: "#1e40af",

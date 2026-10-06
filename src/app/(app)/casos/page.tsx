@@ -149,16 +149,18 @@ export default async function PaginaCasos({
         descripcion="Revisa las homologaciones que la IA dejó listas y emite el veredicto."
         icono={Briefcase}
         accion={
-          <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/casos/nuevo"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-marca text-marca-fg hover:bg-marca-hover transition-colors shadow-sm shrink-0"
+          >
+            <FilePlus className="w-4 h-4" />
+            Nuevo caso
+          </Link>
+        }
+        subbarra={
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <BuscadorCasos />
             <FiltroFechas />
-            <Link
-              href="/casos/nuevo"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-marca text-marca-fg hover:bg-marca-hover transition-colors shadow-sm shrink-0"
-            >
-              <FilePlus className="w-4 h-4" />
-              Nuevo caso
-            </Link>
           </div>
         }
       />

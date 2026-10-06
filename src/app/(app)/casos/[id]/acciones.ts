@@ -495,3 +495,42 @@ export async function guardarDatosResolucion(formData: FormData) {
   revalidatePath(`/casos/${casoId}`);
 }
 
+// Guarda la lista ordenada de asignaturas que el estudiante debe matricular en su primer período (Art. 3° de la Resolución).
+// Si asignaturasIds está vacío, limpia la tabla para volver a la proyección automática.
+export async function guardarCursosMatricula(
+  casoId: string,
+  asignaturasIds: string[],
+): Promise<{ error?: string; ok?: boolean }> {
+  if (!casoId) return { error: "ID de caso no válido." };
+
+  const supabase = crearClienteServidor();
+
+  // 1. Eliminar los registros actuales de curso_matricula para este caso
+  const { error: errorBorrado } = await supabase
+    .from("curso_matricula")
+    .delete()
+    .eq("caso_id", casoId);
+
+  if (errorBorrado) {
+    return { error: `No se pudieron actualizar los cursos: ${errorBorrado.message}` };
+  }
+
+  // 2. Insertar los nuevos cursos conservando el orden explícito (1, 2, 3...)
+  if (asignaturasIds.length > 0) {
+    const filas = asignaturasIds.map((asignaturaId, idx) => ({
+      caso_id: casoId,
+      asignatura_id: asignaturaId,
+      orden: idx + 1,
+    }));
+
+    const { error: errorInsertar } = await supabase.from("curso_matricula").insert(filas);
+
+    if (errorInsertar) {
+      return { error: `Error al guardar cursos de matrícula: ${errorInsertar.message}` };
+    }
+  }
+
+  revalidatePath(`/casos/${casoId}`);
+  return { ok: true };
+}
+

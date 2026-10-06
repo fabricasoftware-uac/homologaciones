@@ -19,6 +19,11 @@ import {
   IconPencil as Pencil,
   IconChecks as Checks,
   IconSearch as Search,
+  IconChevronLeft as ChevronLeft,
+  IconChevronRight as ChevronRight,
+  IconBolt as Bolt,
+  IconTarget as Target,
+  IconExternalLink as ExternalLink,
 } from "@tabler/icons-react";
 import { motion, AnimatePresence } from "motion/react";
 import clsx from "clsx";
@@ -82,6 +87,9 @@ type Props = {
     semestreSugerido: number | null;
     notaAdmin: string | null;
     notaInterna: string | null;
+    numeroResolucion?: string | null;
+    periodoMatricula?: string | null;
+    fechaLimitePago?: string | null;
     cerrado: boolean;
   };
   materias: MateriaStudio[];
@@ -151,6 +159,7 @@ export function EstudioHomologacion({
   );
   const [nota, setNota] = useState(caso.notaAdmin ?? "");
   const [notaInterna, setNotaInterna] = useState(caso.notaInterna ?? "");
+
   // Editor de materias de origen: crear una que faltó o corregir/eliminar una extraída.
   const [editorMateria, setEditorMateria] = useState<
     { modo: "crear" } | { modo: "editar"; materia: MateriaStudio } | null
@@ -188,6 +197,59 @@ export function EstudioHomologacion({
   const [filtroDestino, setFiltroDestino] = useState("");
   const materiasFiltradas = filtrar(materiasOrdenadas, filtroOrigen, (id) => origenes.includes(id));
   const asignaturasFiltradas = filtrar(asignaturas, filtroDestino, (id) => destinos.includes(id));
+
+  // Navegación secuencial de materias de origen
+  const indiceOrigenActual = origen ? materiasFiltradas.findIndex((m) => m.id === origen) : -1;
+  const hayPendientes = materiasFiltradas.some(
+    (m) => !vinculos.some((v) => v.materiaOrigenId === m.id && v.estado === "aprobado"),
+  );
+
+  function navegarMateria(index: number) {
+    if (index < 0 || index >= materiasFiltradas.length) return;
+    const item = materiasFiltradas[index];
+    setOrigenes([item.id]);
+    setTimeout(() => {
+      document.getElementById(`card-mat-${item.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 40);
+  }
+
+  function irAProximaPendiente() {
+    if (materiasFiltradas.length === 0) return;
+    const startIndex = indiceOrigenActual >= 0 ? indiceOrigenActual + 1 : 0;
+    for (let i = startIndex; i < materiasFiltradas.length; i++) {
+      const m = materiasFiltradas[i];
+      const tieneAprobado = vinculos.some((v) => v.materiaOrigenId === m.id && v.estado === "aprobado");
+      if (!tieneAprobado) {
+        navegarMateria(i);
+        return;
+      }
+    }
+    for (let i = 0; i < startIndex; i++) {
+      const m = materiasFiltradas[i];
+      const tieneAprobado = vinculos.some((v) => v.materiaOrigenId === m.id && v.estado === "aprobado");
+      if (!tieneAprobado) {
+        navegarMateria(i);
+        return;
+      }
+    }
+    sileo.info({ title: "Todas las materias visibles ya están homologadas" });
+  }
+
+  function saltarADestino(asignaturaId: string) {
+    setColumnaMovil("destino");
+    setDestinos([asignaturaId]);
+    setTimeout(() => {
+      document.getElementById(`card-asig-${asignaturaId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 50);
+  }
+
+  // Lista de semestres disponibles en el plan destino
+  const semestresDisponibles = Array.from(
+    new Set(asignaturas.map((a) => a.semestre).filter((s): s is number => typeof s === "number" && s > 0)),
+  ).sort((a, b) => a - b);
 
   // Al seleccionar una materia de origen que ya está vinculada, desplazamos la columna derecha
   // hasta su asignatura (puede estar muy abajo). Y al revés, al seleccionar una asignatura.
@@ -495,94 +557,88 @@ export function EstudioHomologacion({
           )}
           {!cerrado && <BotonReprocesar casoId={caso.id} />}
           {!cerrado && (
-          <Dialog>
-            <DialogTrigger asChild>
-              <button className="bg-marca text-marca-fg px-5 py-2 rounded-lg font-medium hover:bg-marca-hover dark:bg-marca-hover dark:hover:bg-marca text-sm shadow-sm">
-                Finalizar revisión
-              </button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Finalizar revisión</DialogTitle>
-                <DialogDescription>
-                  Confirma el semestre en el que quedaría el estudiante y emite el veredicto del caso.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="sem-final" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
-                    Semestre
-                  </label>
-                  <input
-                    id="sem-final"
-                    type="number"
-                    min={1}
-                    value={semestre}
-                    onChange={(e) => setSemestre(e.target.value)}
-                    className="w-32 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <label htmlFor="nota-final" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-                      Nota para el estudiante{" "}
-                      <span className="text-slate-400 dark:text-slate-500 font-normal">(opcional)</span>
+            <Dialog>
+              <DialogTrigger asChild>
+                <button className="bg-marca text-marca-fg px-5 py-2 rounded-lg font-medium hover:bg-marca-hover dark:bg-marca-hover dark:hover:bg-marca text-sm shadow-sm">
+                  Finalizar revisión
+                </button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Finalizar revisión</DialogTitle>
+                  <DialogDescription>
+                    Confirma el semestre en el que quedaría el estudiante y emite el veredicto del caso.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="sem-final" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                      Semestre
                     </label>
-                    <SelectorPlantilla
-                      plantillas={plantillas}
-                      onInsertar={(t) => setNota((prev) => (prev.trim() ? `${prev}\n${t}` : t))}
+                    <input
+                      id="sem-final"
+                      type="number"
+                      min={1}
+                      value={semestre}
+                      onChange={(e) => setSemestre(e.target.value)}
+                      className="w-32 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none"
                     />
                   </div>
-                  <textarea
-                    id="nota-final"
-                    value={nota}
-                    onChange={(e) => setNota(e.target.value)}
-                    rows={3}
-                    placeholder="Ej.: Debes presentar los programas de las materias homologadas en admisiones."
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none resize-none text-sm"
-                  />
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label htmlFor="nota-final" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                        Nota para el estudiante{" "}
+                        <span className="text-slate-400 dark:text-slate-500 font-normal">(opcional)</span>
+                      </label>
+                      <SelectorPlantilla
+                        plantillas={plantillas}
+                        onInsertar={(t) => setNota((prev) => (prev.trim() ? `${prev}\n${t}` : t))}
+                      />
+                    </div>
+                    <textarea
+                      id="nota-final"
+                      value={nota}
+                      onChange={(e) => setNota(e.target.value)}
+                      rows={3}
+                      placeholder="Ej.: Debes presentar los programas de las materias homologadas en admisiones."
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none resize-none text-sm"
+                    />
+                  </div>
+                  <div>
+                    {/* "Interna" se señala con el punto ámbar del label, no tiñendo el input entero */}
+                    <label htmlFor="nota-interna" className="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                      Nota interna{" "}
+                      <span className="text-slate-400 dark:text-slate-500 font-normal">(no la ve el estudiante)</span>
+                    </label>
+                    <textarea
+                      id="nota-interna"
+                      value={notaInterna}
+                      onChange={(e) => setNotaInterna(e.target.value)}
+                      rows={2}
+                      placeholder="Ej.: Falta confirmar créditos de Cálculo II con el coordinador."
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none resize-none text-sm"
+                    />
+                  </div>
                 </div>
-                <div>
-                  {/* "Interna" se señala con el punto ámbar del label, no tiñendo el input entero:
-                      el campo queda neutro como los demás (el tinte ámbar completo se veía mal,
-                      sobre todo en oscuro). */}
-                  <label htmlFor="nota-interna" className="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                    Nota interna{" "}
-                    <span className="text-slate-400 dark:text-slate-500 font-normal">(no la ve el estudiante)</span>
-                  </label>
-                  <textarea
-                    id="nota-interna"
-                    value={notaInterna}
-                    onChange={(e) => setNotaInterna(e.target.value)}
-                    rows={2}
-                    placeholder="Ej.: Falta confirmar créditos de Cálculo II con el coordinador."
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none resize-none text-sm"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                {/* Veredicto con la paleta semántica del estudio: rechazar = rose (outline, acción
-                    secundaria), aprobar = emerald sólido (acción principal). Antes: rojo con hover
-                    claro sin variante dark (se "encendía" en modo oscuro) y aprobar en color de
-                    marca, que no comunicaba veredicto. */}
-                <button
-                  onClick={() => hacerFinalizar("rechazado")}
-                  disabled={pendiente}
-                  className="px-4 py-2 rounded-lg text-sm font-medium text-rose-600 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40 bg-transparent hover:bg-rose-50 dark:hover:bg-rose-500/10 disabled:opacity-50 transition-colors"
-                >
-                  Rechazar caso
-                </button>
-                <button
-                  onClick={() => hacerFinalizar("aprobado")}
-                  disabled={pendiente}
-                  className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm disabled:opacity-50 transition-colors"
-                >
-                  Aprobar caso
-                </button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                <DialogFooter>
+                  <button
+                    onClick={() => hacerFinalizar("rechazado")}
+                    disabled={pendiente}
+                    className="px-4 py-2 rounded-lg text-sm font-medium text-rose-600 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40 bg-transparent hover:bg-rose-50 dark:hover:bg-rose-500/10 disabled:opacity-50 transition-colors"
+                  >
+                    Rechazar caso
+                  </button>
+                  <button
+                    onClick={() => hacerFinalizar("aprobado")}
+                    disabled={pendiente}
+                    className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm disabled:opacity-50 transition-colors"
+                  >
+                    Aprobar caso
+                  </button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
         </div>
       </div>
@@ -621,13 +677,58 @@ export function EstudioHomologacion({
           acento="text-slate-400 dark:text-slate-500"
           claseRaiz={columnaMovil === "origen" ? "flex md:flex" : "hidden md:flex"}
           herramientas={
-            <BuscadorColumna
-              valor={filtroOrigen}
-              onCambiar={setFiltroOrigen}
-              placeholder="Buscar materia de origen…"
-              visibles={materiasFiltradas.length}
-              total={materias.length}
-            />
+            <div className="space-y-2">
+              <BuscadorColumna
+                valor={filtroOrigen}
+                onCambiar={setFiltroOrigen}
+                placeholder="Buscar materia de origen…"
+                visibles={materiasFiltradas.length}
+                total={materias.length}
+              />
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => navegarMateria(indiceOrigenActual - 1)}
+                    disabled={indiceOrigenActual <= 0}
+                    title="Materia anterior"
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="font-semibold text-slate-600 dark:text-slate-300 min-w-[90px] text-center select-none text-[11px]">
+                    {indiceOrigenActual >= 0
+                      ? `Materia ${indiceOrigenActual + 1} de ${materiasFiltradas.length}`
+                      : `${materiasFiltradas.length} materias`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => navegarMateria(indiceOrigenActual < 0 ? 0 : indiceOrigenActual + 1)}
+                    disabled={materiasFiltradas.length === 0 || indiceOrigenActual >= materiasFiltradas.length - 1}
+                    title="Materia siguiente"
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={irAProximaPendiente}
+                  disabled={!hayPendientes}
+                  className={clsx(
+                    "inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold border transition-colors text-[11px]",
+                    hayPendientes
+                      ? "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 hover:bg-amber-100"
+                      : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 opacity-60 cursor-not-allowed",
+                  )}
+                  title="Saltar a la siguiente materia que aún no ha sido homologada"
+                >
+                  <Bolt className="w-3.5 h-3.5 text-amber-500" />
+                  <span>{hayPendientes ? "Próxima pendiente" : "Completadas"}</span>
+                </button>
+              </div>
+            </div>
           }
         >
           {/* Herramientas de la columna origen: alta manual + modo de selección múltiple (para
@@ -683,6 +784,20 @@ export function EstudioHomologacion({
                 if (unicoDest && m.creditos != null && unicoDest.creditos > m.creditos) {
                   avisos.push(`Créditos ${m.creditos}→${unicoDest.creditos}`);
                 }
+
+                const saltosDestino = vs
+                  .map((v) => {
+                    const asig = asignaturaPorId.get(v.asignaturaId);
+                    if (!asig) return null;
+                    return {
+                      id: asig.id,
+                      nombre: asig.nombre,
+                      semestre: asig.semestre,
+                      aprobado: v.estado === "aprobado",
+                    };
+                  })
+                  .filter((x): x is { id: string; nombre: string; semestre: number; aprobado: boolean } => x !== null);
+
                 return (
                   <Tarjeta
                     key={m.id}
@@ -705,6 +820,8 @@ export function EstudioHomologacion({
                     tipo="origen"
                     onClick={cerrado ? undefined : () => alternarOrigen(m.id)}
                     onEditar={cerrado ? undefined : () => setEditorMateria({ modo: "editar", materia: m })}
+                    saltosDestino={saltosDestino}
+                    onSaltarADestino={saltarADestino}
                   />
                 );
             })}
@@ -723,14 +840,48 @@ export function EstudioHomologacion({
           acento="text-marca dark:text-slate-300"
           fondo="bg-slate-50/40 dark:bg-slate-900/40"
           claseRaiz={columnaMovil === "destino" ? "flex md:flex" : "hidden md:flex"}
+          idContenido="columna-destino-scroll"
           herramientas={
-            <BuscadorColumna
-              valor={filtroDestino}
-              onCambiar={setFiltroDestino}
-              placeholder="Buscar asignatura del plan…"
-              visibles={asignaturasFiltradas.length}
-              total={asignaturas.length}
-            />
+            <div className="space-y-2">
+              <BuscadorColumna
+                valor={filtroDestino}
+                onCambiar={setFiltroDestino}
+                placeholder="Buscar asignatura del plan…"
+                visibles={asignaturasFiltradas.length}
+                total={asignaturas.length}
+              />
+              {semestresDisponibles.length > 0 && (
+                <div className="flex items-center gap-1 pt-2 border-t border-slate-100 dark:border-slate-800 overflow-x-auto no-scrollbar py-0.5">
+                  <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0 mr-1">
+                    Semestres:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      document.getElementById("columna-destino-scroll")?.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="px-2 py-0.5 text-[11px] font-semibold rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+                  >
+                    Todos
+                  </button>
+                  {semestresDisponibles.map((sem) => (
+                    <button
+                      key={sem}
+                      type="button"
+                      onClick={() => {
+                        document.getElementById(`semestre-grupo-${sem}`)?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                      }}
+                      className="px-2 py-0.5 text-[11px] font-semibold rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:border-marca hover:text-marca dark:hover:text-marca-fg transition-colors shrink-0"
+                    >
+                      S{sem}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           }
         >
           {agrupar(asignaturasFiltradas).map(([sem, items]) => (
@@ -1049,6 +1200,7 @@ function Columna({
   fondo,
   claseRaiz,
   herramientas,
+  idContenido,
   children,
 }: {
   etiqueta: string;
@@ -1060,6 +1212,7 @@ function Columna({
   claseRaiz?: string;
   // Barra fija bajo el encabezado (p. ej. el buscador): no se desplaza con la lista.
   herramientas?: React.ReactNode;
+  idContenido?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -1081,7 +1234,7 @@ function Columna({
           {herramientas}
         </div>
       )}
-      <div className="flex-1 md:overflow-y-auto p-5 space-y-6">{children}</div>
+      <div id={idContenido} className="flex-1 md:overflow-y-auto p-5 space-y-6">{children}</div>
     </div>
   );
 }
@@ -1090,7 +1243,7 @@ function GrupoSemestre({ sem, children }: { sem: number; children: React.ReactNo
   const [abierto, setAbierto] = useState(true);
   const cantidad = Children.count(children);
   return (
-    <div>
+    <div id={`semestre-grupo-${sem}`} className="scroll-mt-4">
       {/* Encabezado del semestre como etiqueta liviana (sin caja anidada): se siente más aireado. */}
       <button
         type="button"
@@ -1143,6 +1296,8 @@ function Tarjeta({
   tipo,
   onClick,
   onEditar,
+  saltosDestino,
+  onSaltarADestino,
 }: {
   idElemento: string;
   codigo: string | null;
@@ -1168,6 +1323,8 @@ function Tarjeta({
   onClick?: () => void;
   // Edición manual (solo materias de origen): abre el editor sin disparar la selección.
   onEditar?: () => void;
+  saltosDestino?: { id: string; nombre: string; semestre: number; aprobado: boolean }[];
+  onSaltarADestino?: (asignaturaId: string) => void;
 }) {
   // Principio de diseño: la SUPERFICIE de la tarjeta es SIEMPRE neutra (blanco / superficie del tema
   // oscuro elegido), y el color solo SEÑALA, no inunda. El estado del vínculo va en una barra de
@@ -1334,6 +1491,33 @@ function Tarjeta({
               {vinculadoCon.nombres.length}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Saltos rápidos directos a asignaturas enlazadas o sugeridas */}
+      {saltosDestino && saltosDestino.length > 0 && (
+        <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-1.5">
+          {saltosDestino.map((salto) => (
+            <button
+              key={salto.id}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSaltarADestino?.(salto.id);
+              }}
+              className={clsx(
+                "inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all max-w-full group shadow-2xs",
+                salto.aprobado
+                  ? "border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/90 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/20"
+                  : "border-sky-200 dark:border-sky-500/30 bg-sky-50/90 dark:bg-sky-500/10 text-sky-800 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-500/20",
+              )}
+              title={`Ir directamente a ${salto.nombre} (Semestre ${salto.semestre}) en el plan de estudios`}
+            >
+              <Target className="w-3.5 h-3.5 shrink-0 opacity-80 group-hover:scale-110 transition-transform" />
+              <span className="truncate">Ir a: {salto.nombre} (Sem {salto.semestre})</span>
+              <ExternalLink className="w-3 h-3 shrink-0 ml-0.5 opacity-60 group-hover:opacity-100" />
+            </button>
+          ))}
         </div>
       )}
     </motion.div>

@@ -39,6 +39,13 @@ export default async function PaginaIngresar() {
               Política de tratamiento de datos
             </a>
           </p>
+
+          <div className="mt-8 pt-4 border-t border-slate-200 dark:border-slate-800 text-center text-[11px] text-slate-500">
+            <p className="font-medium text-slate-600 dark:text-slate-400">Desarrollado por la Fábrica de Software</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+              Powered by <span className="font-semibold text-slate-700 dark:text-slate-300">Emprendelab</span>
+            </p>
+          </div>
         </div>
       </div>
     </div>

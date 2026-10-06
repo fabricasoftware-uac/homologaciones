@@ -37,15 +37,15 @@ export function MobileNav({
           <Menu className="w-6 h-6" />
         </button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-64 p-0 bg-slate-900 border-slate-800 text-slate-300">
+      <SheetContent side="left" className="w-64 p-0 bg-slate-900 border-slate-800 text-slate-300 flex flex-col h-full">
         <SheetTitle className="sr-only">Navegación</SheetTitle>
-        <div className="p-4 flex items-center gap-3">
+        <div className="p-4 flex items-center gap-3 shrink-0">
           <Logotipo marca={marca} size="md" fondo="oscuro" />
           <span className="text-base font-semibold text-white tracking-tight truncate">
             {marca.nombre}
           </span>
         </div>
-        <nav className="px-3 py-2 space-y-1">
+        <nav className="px-3 py-2 space-y-1 flex-1 overflow-y-auto">
           {items.map((item) => {
             const activo = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
             return (
@@ -70,7 +70,7 @@ export function MobileNav({
         {/* Mismo criterio que el sidebar de escritorio: quien inició sesión con credenciales debe
             poder salir; solo el invitado anónimo se queda sin el botón. */}
         {!perfil.esAnonimo && (
-          <div className="px-3 py-3 mt-2 border-t border-white/10">
+          <div className="px-3 py-3 border-t border-white/10 shrink-0">
             <form action={cerrarSesion}>
               <button
                 type="submit"
@@ -82,6 +82,13 @@ export function MobileNav({
             </form>
           </div>
         )}
+
+        <div className="px-4 py-3 border-t border-slate-800 text-[11px] text-slate-500 text-center leading-tight shrink-0">
+          <p className="text-slate-400 font-medium">Desarrollado por la Fábrica de Software</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            Powered by <span className="text-slate-300 font-semibold">Emprendelab</span>
+          </p>
+        </div>
       </SheetContent>
     </Sheet>
   );

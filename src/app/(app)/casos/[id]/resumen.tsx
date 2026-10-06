@@ -18,6 +18,7 @@ import { sileo } from "sileo";
 import { reabrirCaso, guardarNota, guardarDatosResolucion } from "./acciones";
 import { GestionInscripcion, type MateriaInscripcion } from "./gestion-inscripcion";
 import { SelectorPlantilla } from "./selector-plantilla";
+import { EditorCursosMatricula, type AsignaturaMatriculaItem } from "./editor-cursos-matricula";
 
 // Resumen de un caso ya cerrado (aprobado/rechazado): cómo quedó la homologación + la nota para el
 // estudiante. El admin puede editar la nota cuando quiera, o reabrir la revisión para cambiar todo.
@@ -30,6 +31,9 @@ export function ResumenCaso({
   plantillas,
   puedeEditar = true,
   gestion = null,
+  cursosMatriculaIniciales = [],
+  sugerenciaAutomatica = [],
+  todasAsignaturas = [],
 }: {
   caso: {
     id: string;
@@ -60,6 +64,9 @@ export function ResumenCaso({
     nota: string | null;
     materias: MateriaInscripcion[];
   } | null;
+  cursosMatriculaIniciales?: AsignaturaMatriculaItem[];
+  sugerenciaAutomatica?: AsignaturaMatriculaItem[];
+  todasAsignaturas?: AsignaturaMatriculaItem[];
 }) {
   const [pendiente, iniciar] = useTransition();
   const [nota, setNota] = useState(caso.notaAdmin ?? "");
@@ -237,60 +244,95 @@ export function ResumenCaso({
         {/* Resolución Oficial en PDF: solo cuando el caso quedó aprobado. */}
         {aprobado && (
           <div className="space-y-4">
-            {puedeEditar && (
-              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 space-y-3">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Parámetros de la Resolución Oficial
+            <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 sm:p-6 space-y-5">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                  Resolución Oficial (Parámetros y Art. 3°)
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                      N° Resolución
-                    </label>
-                    <input
-                      type="text"
-                      value={numeroResolucion}
-                      onChange={(e) => setNumeroResolucion(e.target.value)}
-                      placeholder="Ej.: 045 o XXX"
-                      className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none font-medium text-slate-700 dark:text-slate-200"
-                    />
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Configura los datos del acto administrativo y la lista oficial de cursos a matricular.
+                </p>
+              </div>
+
+              {puedeEditar ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                        N° Resolución
+                      </label>
+                      <input
+                        type="text"
+                        value={numeroResolucion}
+                        onChange={(e) => setNumeroResolucion(e.target.value)}
+                        placeholder="Ej.: 045 o XXX"
+                        className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none font-medium text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                        Período de matrícula
+                      </label>
+                      <input
+                        type="text"
+                        value={periodoMatricula}
+                        onChange={(e) => setPeriodoMatricula(e.target.value)}
+                        placeholder="Ej.: 1P-2026"
+                        className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none font-medium text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                        Fecha límite pago
+                      </label>
+                      <input
+                        type="date"
+                        value={fechaLimitePago}
+                        onChange={(e) => setFechaLimitePago(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none font-medium text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                      Período de matrícula
-                    </label>
-                    <input
-                      type="text"
-                      value={periodoMatricula}
-                      onChange={(e) => setPeriodoMatricula(e.target.value)}
-                      placeholder="Ej.: 1P-2026"
-                      className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none font-medium text-slate-700 dark:text-slate-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                      Fecha límite pago
-                    </label>
-                    <input
-                      type="date"
-                      value={fechaLimitePago}
-                      onChange={(e) => setFechaLimitePago(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none font-medium text-slate-700 dark:text-slate-200"
-                    />
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={guardarResolucion}
+                      disabled={pendiente}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 rounded-lg px-3 py-1.5 hover:bg-blue-100 dark:hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+                    >
+                      <Save className="w-3.5 h-3.5" /> Guardar parámetros
+                    </button>
                   </div>
                 </div>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={guardarResolucion}
-                    disabled={pendiente}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 rounded-lg px-3 py-1.5 hover:bg-blue-100 transition-colors"
-                  >
-                    <Save className="w-3.5 h-3.5" /> Guardar parámetros
-                  </button>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="bg-slate-50 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
+                    <span className="block text-slate-400 text-[11px]">N° Resolución:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{numeroResolucion || "Pendiente"}</span>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
+                    <span className="block text-slate-400 text-[11px]">Período:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{periodoMatricula || "Pendiente"}</span>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
+                    <span className="block text-slate-400 text-[11px]">Límite de pago:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{fechaLimitePago || "Calendario"}</span>
+                  </div>
                 </div>
-              </section>
-            )}
+              )}
+
+              {/* Editor de cursos de matrícula para el Artículo 3° */}
+              <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4">
+                <EditorCursosMatricula
+                  casoId={caso.id}
+                  cursosIniciales={cursosMatriculaIniciales}
+                  sugerenciaAutomatica={sugerenciaAutomatica}
+                  todasAsignaturas={todasAsignaturas}
+                  deshabilitado={!puedeEditar}
+                  inicialmenteGuardado={cursosMatriculaIniciales.length > 0}
+                />
+              </div>
+            </section>
 
             <a
               href={`/casos/${caso.id}/acta`}

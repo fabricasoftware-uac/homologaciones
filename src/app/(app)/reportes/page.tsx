@@ -149,24 +149,26 @@ export default async function PaginaReportes({
         descripcion="Panorama de las homologaciones."
         icono={BarChart3}
         accion={
-          <div className="flex flex-wrap items-center gap-2">
+          /* Exporta a Excel los casos del rango filtrado + hoja Resumen con los agregados. */
+          <a
+            href={(() => {
+              const sp = new URLSearchParams();
+              if (searchParams.periodo) sp.set("periodo", searchParams.periodo);
+              if (searchParams.desde) sp.set("desde", searchParams.desde);
+              if (searchParams.hasta) sp.set("hasta", searchParams.hasta);
+              sp.set("formato", "xlsx");
+              sp.set("resumen", "1");
+              return `/casos/export?${sp.toString()}`;
+            })()}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-sm shrink-0"
+          >
+            <Download className="w-4 h-4" />
+            Exportar Excel
+          </a>
+        }
+        subbarra={
+          <div className="flex items-center justify-between gap-3">
             <FiltroFechas />
-            {/* Exporta a Excel los casos del rango filtrado + hoja Resumen con los agregados. */}
-            <a
-              href={(() => {
-                const sp = new URLSearchParams();
-                if (searchParams.periodo) sp.set("periodo", searchParams.periodo);
-                if (searchParams.desde) sp.set("desde", searchParams.desde);
-                if (searchParams.hasta) sp.set("hasta", searchParams.hasta);
-                sp.set("formato", "xlsx");
-                sp.set("resumen", "1");
-                return `/casos/export?${sp.toString()}`;
-              })()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Exportar Excel
-            </a>
           </div>
         }
       />

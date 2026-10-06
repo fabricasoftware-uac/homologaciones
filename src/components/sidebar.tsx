@@ -15,6 +15,7 @@ import {
   IconUsers as Users,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
   IconFilePlus as FilePlus,
+  IconBook2 as Book2,
   type Icon as LucideIcon,
 } from "@tabler/icons-react";
 import { motion } from "motion/react";
@@ -45,14 +46,19 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = {
     { to: "/reportes", icon: BarChart3, label: "Reportes" },
     { to: "/usuarios", icon: Users, label: "Usuarios" },
     { to: "/configuracion", icon: Settings, label: "Configuración" },
+    { to: "/manual", icon: Book2, label: "Manuales y Ayuda" },
   ],
   // El asesor/coordinador trabaja su bandeja y puede crear nuevos casos.
   asesor: [
     { to: "/casos", icon: Briefcase, label: "Casos de estudio" },
     { to: "/casos/nuevo", icon: FilePlus, label: "Nuevo caso" },
+    { to: "/manual", icon: Book2, label: "Manuales y Ayuda" },
   ],
   // El verificador gestiona la inscripción de los casos aprobados (la RLS le muestra solo esos).
-  verificador: [{ to: "/casos", icon: Briefcase, label: "Casos aprobados" }],
+  verificador: [
+    { to: "/casos", icon: Briefcase, label: "Casos aprobados" },
+    { to: "/manual", icon: Book2, label: "Manuales y Ayuda" },
+  ],
 };
 
 const ETIQUETA_ROL: Record<Rol, string> = {
@@ -188,6 +194,13 @@ export function Sidebar({
             </form>
           )}
         </div>
+      </div>
+
+      <div className="px-4 py-2.5 border-t border-slate-800 text-[11px] text-slate-500 text-center leading-tight">
+        <p className="text-slate-400 font-medium">Desarrollado por la Fábrica de Software</p>
+        <p className="text-[10px] text-slate-500 mt-0.5">
+          Powered by <span className="text-slate-300 font-semibold">Emprendelab</span>
+        </p>
       </div>
     </aside>
   );
