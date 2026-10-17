@@ -127,7 +127,7 @@ export default async function PaginaMisHomologaciones() {
                 Cuando envíes tu primera solicitud, podrás seguir su avance desde aquí.
               </p>
               <Button asChild className="mt-6">
-                <Link href="/homologar">Iniciar una homologación</Link>
+                <Link href="/casos/nuevo">Nuevo caso de homologación</Link>
               </Button>
             </div>
           ) : (

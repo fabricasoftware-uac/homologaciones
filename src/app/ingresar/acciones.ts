@@ -23,7 +23,7 @@ export async function ingresar(
   }
 
   const supabase = crearClienteServidor();
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data: authData, error } = await supabase.auth.signInWithPassword({
     email: correo,
     password: clave,
   });
@@ -32,7 +32,17 @@ export async function ingresar(
     return { error: "Correo o contraseña incorrectos." };
   }
 
-  // signInWithPassword ya dejó la cookie de sesión vía el cliente de servidor; al redirigir,
-  // la siguiente página ya reconoce al usuario.
+  // Consultar el rol del usuario para dirigirlo a su panel respectivo
+  if (authData.user) {
+    const { data: perfil } = await supabase
+      .from("perfil")
+      .select("rol")
+      .eq("id", authData.user.id)
+      .single();
+    if (perfil?.rol === "admin") {
+      redirect("/inicio");
+    }
+  }
+
   redirect("/casos");
 }

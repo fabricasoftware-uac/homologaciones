@@ -27,6 +27,7 @@ const RUTAS_PANEL: Record<string, Rol[]> = {
   "/reportes": ["admin"],
   "/configuracion": ["admin"],
   "/usuarios": ["admin"],
+  "/manual": ["admin", "asesor", "verificador"],
 };
 
 // Corre en cada request: renueva la sesión de Supabase y, de paso, hace de portero.
@@ -94,8 +95,8 @@ export async function actualizarSesion(request: NextRequest) {
       .single();
     const rol = (data as { rol: Rol } | null)?.rol ?? "estudiante";
     if (!rolesPermitidos.includes(rol)) {
-      // Staff en una ruta que no le corresponde -> a su bandeja; estudiante/invitado -> a su flujo.
-      const destino = rol === "asesor" || rol === "verificador" ? "/casos" : "/homologar";
+      // Staff en una ruta que no le corresponde -> a su panel/bandeja; otros -> a casos/ingresar.
+      const destino = rol === "admin" ? "/inicio" : "/casos";
       return redirigir(request, destino, respuesta);
     }
   }

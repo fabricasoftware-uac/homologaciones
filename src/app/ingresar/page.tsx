@@ -1,13 +1,31 @@
+import { redirect } from "next/navigation";
+
+import { crearClienteServidor } from "@/lib/supabase/servidor";
 import { obtenerConfiguracion } from "@/lib/marca/configuracion";
 import { gradienteDe } from "@/lib/marca/fondos";
 import { Logotipo } from "@/components/logotipo";
+import type { Rol } from "@/types";
 import { PanelMarca } from "./panel-marca";
 import { FormularioLogin } from "./formulario-login";
 
-// Pantalla de ingreso (solo el admin inicia sesión). Layout a DOS PANELES: a la izquierda la cara de
+// Pantalla de ingreso institucional. Layout a DOS PANELES: a la izquierda la cara de
 // marca (degradado elegido + partículas + logo/eslogan), a la derecha el formulario sobre un fondo
 // con textura sutil. En móvil se oculta el panel de marca y queda una cabecera compacta.
 export default async function PaginaIngresar() {
+  const supabase = crearClienteServidor();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user && !user.is_anonymous) {
+    const { data } = await supabase.from("perfil").select("rol").eq("id", user.id).single();
+    const rol = (data as { rol: Rol } | null)?.rol;
+    if (rol === "admin") {
+      redirect("/inicio");
+    }
+    redirect("/casos");
+  }
+
   const cfg = await obtenerConfiguracion();
   const gradiente = gradienteDe(cfg.fondoLogin);
 
@@ -15,9 +33,7 @@ export default async function PaginaIngresar() {
     <div className="min-h-screen flex font-sans">
       <PanelMarca marca={cfg} gradiente={gradiente} />
 
-      {/* Panel derecho: superficie limpia y quieta. Antes tenía grilla de puntos y dos resplandores
-          difuminados; con el panel de marca al lado ya hay suficiente color, y competir con él solo
-          restaba foco al formulario, que es lo único que se viene a hacer aquí. */}
+      {/* Panel derecho: formulario de acceso institucional */}
       <div className="relative flex-1 flex items-center justify-center p-6 sm:p-10 bg-slate-50 dark:bg-slate-950">
         <div className="relative w-full max-w-sm">
           {/* Cabecera de marca compacta: solo en móvil/tablet (en escritorio está el panel izq.). */}
@@ -32,7 +48,7 @@ export default async function PaginaIngresar() {
           <FormularioLogin marca={cfg} gradiente={gradiente} />
 
           <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-500">
-            Acceso exclusivo para administradores.
+            Acceso institucional para coordinadores, directivos y administradores de la Uniautónoma.
           </p>
           <p className="mt-2 text-center text-xs text-slate-400 dark:text-slate-500">
             <a href="/privacidad" className="hover:text-slate-600 hover:underline">
