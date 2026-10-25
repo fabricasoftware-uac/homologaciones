@@ -7,7 +7,7 @@ import { responderActa, SELECCION_CASO_ACTA, type CasoActa } from "@/lib/acta/da
 // restringe a admin. Lee el caso con la sesión (RLS de admin) y genera el PDF.
 export const runtime = "nodejs";
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const supabase = crearClienteServidor();
   const { data } = await supabase
     .from("caso")
@@ -15,5 +15,6 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
     .eq("id", params.id)
     .single();
   if (!data) return new Response("Caso no encontrado.", { status: 404 });
-  return responderActa(supabase, data as unknown as CasoActa);
+  const formato = request.nextUrl.searchParams.get("formato") === "docx" ? "docx" : "pdf";
+  return responderActa(supabase, data as unknown as CasoActa, formato);
 }

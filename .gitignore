@@ -13,6 +13,9 @@ next-env.d.ts
 text.txt
 
 
+# Scratch scripts y archivos temporales de prueba
+scratch/
+
 # Basura de macOS/Windows (no debe versionarse).
 .DS_Store
 Thumbs.db

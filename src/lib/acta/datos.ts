@@ -10,6 +10,7 @@ import {
   type FilaHomologada,
   type FilaCursoMatricula,
 } from "./documento";
+import { generarActaDocx } from "./generador-docx";
 import { proyectarCursosAutomaticos, type AsignaturaProyeccion } from "./proyeccion-matricula";
 
 export type CasoActa = {
@@ -181,6 +182,7 @@ function folioDe(token: string): string {
 export async function responderActa(
   supabase: SupabaseClient,
   caso: CasoActa,
+  formato: "pdf" | "docx" = "pdf",
 ): Promise<Response> {
   if (caso.estado !== "aprobado") {
     return new Response(
@@ -233,8 +235,21 @@ export async function responderActa(
     vigiladoPath: path.join(process.cwd(), "public/resolucion/vigilado-mineducacion.png"),
   };
 
-  const pdf = await generarActaPdf(datos);
   const numResol = caso.numero_resolucion?.trim() || folioDe(caso.token_seguimiento);
+
+  if (formato === "docx") {
+    const docxBuffer = await generarActaDocx(datos);
+    const nombreArchivo = `Resolucion-Homologacion-${numResol}.docx`;
+    return new Response(new Uint8Array(docxBuffer), {
+      headers: {
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": `attachment; filename="${nombreArchivo}"`,
+      },
+    });
+  }
+
+  const pdf = await generarActaPdf(datos);
   const nombreArchivo = `Resolucion-Homologacion-${numResol}.pdf`;
 
   return new Response(new Uint8Array(pdf), {

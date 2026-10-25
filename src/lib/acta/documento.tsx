@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "center",
     alignItems: "center",
     marginBottom: 10,
   },
@@ -106,6 +106,7 @@ const styles = StyleSheet.create({
     width: 220,
     height: 48,
     objectFit: "contain",
+    alignSelf: "center",
   },
   vigiladoImg: {
     width: 14,
@@ -697,7 +698,7 @@ function DocumentoResolucion(datos: DatosResolucion) {
         </Text>
 
         <Text style={styles.parrafoLegal}>
-          <Text style={styles.textoBold}>ARTICULO 3°.</Text> La presente
+          <Text style={styles.textoBold}>ARTICULO 4°.</Text> La presente
           resolución rige a partir de la fecha de su expedición.
         </Text>
 

@@ -334,12 +334,22 @@ export function ResumenCaso({
               </div>
             </section>
 
-            <a
-              href={`/casos/${caso.id}/acta`}
-              className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-3 rounded-xl shadow-sm shadow-emerald-600/20 dark:shadow-none transition-colors"
-            >
-              <Download className="w-5 h-5" /> Descargar Resolución Oficial (PDF)
-            </a>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <a
+                href={`/casos/${caso.id}/acta`}
+                className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-3 rounded-xl shadow-sm shadow-emerald-600/20 dark:shadow-none transition-colors"
+              >
+                <Download className="w-5 h-5 shrink-0" />
+                <span>Descargar PDF Oficial</span>
+              </a>
+              <a
+                href={`/casos/${caso.id}/acta?formato=docx`}
+                className="flex items-center justify-center gap-2 bg-[#002060] hover:bg-[#001848] text-white font-bold px-4 py-3 rounded-xl shadow-sm shadow-blue-950/20 dark:shadow-none transition-colors"
+              >
+                <FileText className="w-5 h-5 shrink-0" />
+                <span>Descargar Word (.docx)</span>
+              </a>
+            </div>
           </div>
         )}
 

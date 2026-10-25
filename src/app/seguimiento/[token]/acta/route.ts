@@ -8,7 +8,7 @@ import { responderActa, SELECCION_CASO_ACTA, type CasoActa } from "@/lib/acta/da
 // caso por token saltándose la RLS). Solo expone el acta de casos aprobados (lo valida responderActa).
 export const runtime = "nodejs";
 
-export async function GET(_request: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(request: NextRequest, { params }: { params: { token: string } }) {
   const supabase = crearClienteServicio();
   const { data } = await supabase
     .from("caso")
@@ -16,5 +16,6 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
     .eq("token_seguimiento", params.token)
     .single();
   if (!data) return new Response("Caso no encontrado.", { status: 404 });
-  return responderActa(supabase, data as unknown as CasoActa);
+  const formato = request.nextUrl.searchParams.get("formato") === "docx" ? "docx" : "pdf";
+  return responderActa(supabase, data as unknown as CasoActa, formato);
 }
